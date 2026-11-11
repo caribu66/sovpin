@@ -1,0 +1,46 @@
+# SovPin — Kubo IPFS Node
+# Deploy on the MacBook (192.168.86.110) via Tailscale (100.66.85.86)
+#
+# Prerequisites:
+#   - Tailscale installed and connected on the MacBook
+#   - Tailscale IP: 100.66.85.86
+#   - SSH access: ssh -i ~/.ssh/vreal_mirror_ed25519 macbook@192.168.86.110
+#
+# Deploy: docker compose up -d
+# Verify: curl -sI http://100.66.85.86:8080/ipfs/<cid>
+
+services:
+  kubo:
+    image: ipfs/kubo:latest
+    container_name: kubo
+    restart: unless-stopped
+    volumes:
+      - kubo-data:/data/ipfs
+    ports:
+      # Bound exclusively to Tailscale IP — NOT 0.0.0.0
+      - "100.66.85.86:4001:4001"
+      - "100.66.85.86:4001:4001/udp"
+      - "100.66.85.86:5001:5001"
+      - "100.66.85.86:8080:8080"
+    environment:
+      - IPFS_PROFILE=server
+    command: >
+      sh -c "
+        ipfs init --profile=server >/dev/null 2>&1 || true;
+        ipfs config Addresses.API /ip4/0.0.0.0/tcp/5001;
+        ipfs config Addresses.Gateway /ip4/0.0.0.0/tcp/8080;
+        ipfs config --bool Gateway.NoFetch true;
+        ipfs config --bool Gateway.NoDNSLink true;
+        ipfs config --json Gateway.HTTPHeaders.Access-Control-Allow-Origin '[\"*\"]';
+        ipfs config --json Gateway.HTTPHeaders.Access-Control-Allow-Methods '[\"GET\",\"HEAD\",\"OPTIONS\"]';
+        ipfs config --json Gateway.HTTPHeaders.Access-Control-Allow-Headers '[\"Range\",\"If-Range\",\"X-Requested-With\"]';
+        ipfs config --json Gateway.HTTPHeaders.Access-Control-Expose-Headers '[\"Content-Range\",\"Content-Length\",\"Accept-Ranges\",\"X-Ipfs-Path\",\"X-Ipfs-Roots\",\"Etag\"]';
+        ipfs config --json Gateway.HTTPHeaders.X-Content-Type-Options '[\"nosniff\"]';
+        ipfs config --json Gateway.HTTPHeaders.Content-Security-Policy '[\"default-src none; style-src unsafe-inline; sandbox\"]';
+        exec ipfs daemon
+      "
+
+volumes:
+  kubo-data:
+    driver: local
+EOF
