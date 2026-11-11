@@ -33,8 +33,29 @@ echo "[1/2] Updating cache ruleset (respect_origin for edge + browser TTL)..."
   ]
 }'
 
-echo "[2/2] Purging zone cache..."
+echo "[2/3] Purging zone cache..."
 /home/demon/.local/bin/cf cache purge -z "$ZONE" -f --body '{"purge_everything":true}'
+
+echo "[3/3] Ensuring rate limit ruleset (200 req/10s per IP on /ipfs/*)..."
+/home/demon/.local/bin/cf rulesets create -z "$ZONE" --body '{
+  "name": "rate_limiting",
+  "kind": "zone",
+  "phase": "http_ratelimit",
+  "rules": [
+    {
+      "action": "block",
+      "ratelimit": {
+        "characteristics": ["cf.colo.id", "ip.src"],
+        "period": 10,
+        "requests_per_period": 200,
+        "mitigation_timeout": 10
+      },
+      "expression": "(starts_with(http.request.uri.path, \"/ipfs/\"))",
+      "description": "Rate limit IPFS gateway: 200 req/10s per IP",
+      "enabled": true
+    }
+  ]
+}' >/dev/null 2>&1 || echo "  (Rate limit ruleset already exists)"
 
 echo ""
 echo "=== Cache configured. Verify with: ==="

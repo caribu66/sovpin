@@ -14,6 +14,12 @@ services:
     image: ipfs/kubo:latest
     container_name: kubo
     restart: unless-stopped
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
     volumes:
       - kubo-data:/data/ipfs
     ports:

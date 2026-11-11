@@ -43,6 +43,8 @@
 | `Content-Security-Policy` | `default-src 'none'; style-src 'unsafe-inline'; sandbox` | Isolate served content |
 | Docker port binding | `100.66.85.86` (Tailscale only) | LAN/public isolation |
 | Container restart | `unless-stopped` | Auto-recovery |
+| Linux capabilities | `cap_drop: ALL` (only `CHOWN`, `SETUID`, `SETGID` retained) | Privilege minimization |
+| Cloudflare rate limit | `200 req / 10s` per IP on `/ipfs/*` | DDoS / abuse protection |
 
 ## Quick Start
 
