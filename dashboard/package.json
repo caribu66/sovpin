@@ -1,0 +1,13 @@
+{
+  "name": "sovpin-dashboard",
+  "version": "1.0.0",
+  "description": "SovPin IPFS storage service dashboard",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dashboard": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0"
+  }
+}

@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SovPin Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .pulse-green { animation: pulse-green 2s infinite; }
+    @keyframes pulse-green {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+      50% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
+    }
+    .pulse-red { animation: pulse-red 2s infinite; }
+    @keyframes pulse-red {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+      50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+    }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+  <div class="max-w-7xl mx-auto p-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-8">
+      <div>
+        <h1 class="text-3xl font-bold text-white">SovPin Dashboard</h1>
+        <p class="text-gray-400 text-sm mt-1">Sovereign IPFS Pinning & Gateway Service</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <span id="lastUpdate" class="text-xs text-gray-500"></span>
+        <span id="healthBadge" class="px-3 py-1 rounded-full text-sm font-medium bg-gray-800 text-gray-400">Loading...</span>
+      </div>
+    </div>
+
+    <!-- Status Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <!-- Kubo -->
+      <div class="bg-gray-900 rounded-xl p-5 border border-gray-800">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider">Kubo Node</h2>
+          <span id="kuboDot" class="w-3 h-3 rounded-full bg-gray-600"></span>
+        </div>
+        <p id="kuboStatus" class="text-2xl font-bold text-white">—</p>
+        <p id="kuboVersion" class="text-xs text-gray-500 mt-1">—</p>
+      </div>
+      <!-- Tailscale -->
+      <div class="bg-gray-900 rounded-xl p-5 border border-gray-800">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider">Tailscale</h2>
+          <span id="tsDot" class="w-3 h-3 rounded-full bg-gray-600"></span>
+        </div>
+        <p id="tsStatus" class="text-2xl font-bold text-white">—</p>
+        <p id="tsIp" class="text-xs text-gray-500 mt-1">—</p>
+      </div>
+      <!-- Cloudflare -->
+      <div class="bg-gray-900 rounded-xl p-5 border border-gray-800">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider">Cloudflare Tunnel</h2>
+          <span id="cfDot" class="w-3 h-3 rounded-full bg-gray-600"></span>
+        </div>
+        <p id="cfStatus" class="text-2xl font-bold text-white">—</p>
+        <p id="cfTarget" class="text-xs text-gray-500 mt-1">—</p>
+      </div>
+    </div>
+
+    <!-- Metrics Grid -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+        <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Repo Size</p>
+        <p id="repoSize" class="text-xl font-bold text-white">—</p>
+      </div>
+      <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+        <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Pinned CIDs</p>
+        <p id="pinnedCids" class="text-xl font-bold text-white">—</p>
+      </div>
+      <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+        <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Swarm Peers</p>
+        <p id="swarmPeers" class="text-xl font-bold text-white">—</p>
+      </div>
+      <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+        <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Num Objects</p>
+        <p id="numObjects" class="text-xl font-bold text-white">—</p>
+      </div>
+      <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+        <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Bandwidth In</p>
+        <p id="bwIn" class="text-xl font-bold text-white">—</p>
+      </div>
+      <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+        <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Bandwidth Out</p>
+        <p id="bwOut" class="text-xl font-bold text-white">—</p>
+      </div>
+      <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+        <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Cache TTL</p>
+        <p id="cacheTtl" class="text-xl font-bold text-white">—</p>
+      </div>
+      <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+        <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Rate Limit</p>
+        <p id="rateLimit" class="text-xl font-bold text-white">—</p>
+      </div>
+    </div>
+
+    <!-- Cloudflare Details -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      <div class="bg-gray-900 rounded-xl p-5 border border-gray-800">
+        <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Cloudflare Tunnel</h2>
+        <div class="space-y-2 text-sm">
+          <div class="flex justify-between"><span class="text-gray-500">Version</span><span id="cfVersion" class="text-white">—</span></div>
+          <div class="flex justify-between"><span class="text-gray-500">Ingress Rules</span><span id="cfRules" class="text-white">—</span></div>
+          <div class="flex justify-between"><span class="text-gray-500">SovPin Target</span><span id="cfTargetFull" class="text-white font-mono text-xs">—</span></div>
+          <div class="flex justify-between"><span class="text-gray-500">SovPin Path</span><span id="cfPath" class="text-white font-mono text-xs">—</span></div>
+        </div>
+      </div>
+      <div class="bg-gray-900 rounded-xl p-5 border border-gray-800">
+        <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Cloudflare Cache</h2>
+        <div class="space-y-2 text-sm">
+          <div class="flex justify-between"><span class="text-gray-500">Edge TTL</span><span id="cfEdgeTtl" class="text-white">—</span></div>
+          <div class="flex justify-between"><span class="text-gray-500">Browser TTL</span><span id="cfBrowserTtl" class="text-white">—</span></div>
+          <div class="flex justify-between"><span class="text-gray-500">Cache Enabled</span><span id="cfCacheEnabled" class="text-white">—</span></div>
+          <div class="flex justify-between"><span class="text-gray-500">Rate Limit</span><span id="cfRateLimit" class="text-white">—</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MacBook System -->
+    <div class="bg-gray-900 rounded-xl p-5 border border-gray-800 mb-6">
+      <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">MacBook System (192.168.86.110)</h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm font-mono">
+        <div><span class="text-gray-500">Uptime:</span> <span id="sysUptime" class="text-white">—</span></div>
+        <div><span class="text-gray-500">Memory:</span> <span id="sysMemory" class="text-white">—</span></div>
+        <div><span class="text-gray-500">Disk:</span> <span id="sysDisk" class="text-white">—</span></div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="text-center text-xs text-gray-600 mt-8">
+      SovPin Dashboard — Auto-refreshes every 10s — <a href="https://ipfs.sovpin.com" class="text-blue-500 hover:underline">ipfs.sovpin.com</a>
+    </div>
+  </div>
+
+  <script>
+    function fmtBytes(b) {
+      if (b === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(b) / Math.log(k));
+      return parseFloat((b / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function setDot(id, online) {
+      const el = document.getElementById(id);
+      el.className = 'w-3 h-3 rounded-full ' + (online ? 'bg-green-500 pulse-green' : 'bg-red-500 pulse-red');
+    }
+
+    async function fetchJSON(url) {
+      try {
+        const r = await fetch(url);
+        return await r.json();
+      } catch (e) {
+        return null;
+      }
+    }
+
+    async function refresh() {
+      const [kubo, cf, ts, health] = await Promise.all([
+        fetchJSON('/api/kubo'),
+        fetchJSON('/api/cloudflare'),
+        fetchJSON('/api/tailscale'),
+        fetchJSON('/api/health'),
+      ]);
+
+      // Health badge
+      const badge = document.getElementById('healthBadge');
+      if (health?.healthy) {
+        badge.textContent = 'Healthy';
+        badge.className = 'px-3 py-1 rounded-full text-sm font-medium bg-green-900 text-green-300';
+      } else {
+        badge.textContent = 'Degraded';
+        badge.className = 'px-3 py-1 rounded-full text-sm font-medium bg-red-900 text-red-300';
+      }
+
+      // Kubo
+      if (kubo) {
+        setDot('kuboDot', kubo.online);
+        document.getElementById('kuboStatus').textContent = kubo.online ? 'Online' : 'Offline';
+        document.getElementById('kuboVersion').textContent = kubo.version ? `v${kubo.version} (${kubo.commit?.slice(0,7) || '?'})` : '—';
+        document.getElementById('repoSize').textContent = fmtBytes(kubo.repoSize);
+        document.getElementById('pinnedCids').textContent = kubo.pinnedCids?.toLocaleString() || '0';
+        document.getElementById('swarmPeers').textContent = kubo.swarmPeers?.toLocaleString() || '0';
+        document.getElementById('numObjects').textContent = kubo.numObjects?.toLocaleString() || '0';
+        document.getElementById('bwIn').textContent = fmtBytes(kubo.bandwidth?.totalIn || 0);
+        document.getElementById('bwOut').textContent = fmtBytes(kubo.bandwidth?.totalOut || 0);
+      }
+
+      // Tailscale
+      if (ts) {
+        setDot('tsDot', ts.online && ts.macbook?.online);
+        document.getElementById('tsStatus').textContent = (ts.online && ts.macbook?.online) ? 'Connected' : 'Disconnected';
+        document.getElementById('tsIp').textContent = ts.macbook?.ip || '—';
+        document.getElementById('sysUptime').textContent = ts.system?.uptime?.trim() || '—';
+        document.getElementById('sysMemory').textContent = ts.system?.memory?.trim() || '—';
+        document.getElementById('sysDisk').textContent = ts.system?.disk?.trim() || '—';
+      }
+
+      // Cloudflare
+      if (cf) {
+        setDot('cfDot', cf.tunnel?.online);
+        document.getElementById('cfStatus').textContent = cf.tunnel?.online ? 'Healthy' : 'Down';
+        document.getElementById('cfTarget').textContent = cf.tunnel?.sovpinTarget || '—';
+        document.getElementById('cfVersion').textContent = cf.tunnel?.version || '—';
+        document.getElementById('cfRules').textContent = cf.tunnel?.totalRules || '—';
+        document.getElementById('cfTargetFull').textContent = cf.tunnel?.sovpinTarget || '—';
+        document.getElementById('cfPath').textContent = cf.tunnel?.sovpinPath || '—';
+        document.getElementById('cfEdgeTtl').textContent = cf.cache?.edgeTtl || '—';
+        document.getElementById('cfBrowserTtl').textContent = cf.cache?.browserTtl || '—';
+        document.getElementById('cfCacheEnabled').textContent = cf.cache?.cacheEnabled ? 'Yes' : 'No';
+        document.getElementById('cfRateLimit').textContent = cf.rateLimit?.configured ? '200 req/10s' : 'Not configured';
+        document.getElementById('cacheTtl').textContent = cf.cache?.edgeTtl === 'respect_origin' ? 'Respect origin' : (cf.cache?.edgeTtl || '—');
+        document.getElementById('rateLimit').textContent = cf.rateLimit?.configured ? 'Active' : 'Inactive';
+      }
+
+      document.getElementById('lastUpdate').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+    }
+
+    refresh();
+    setInterval(refresh, 10000);
+  </script>
+</body>
+</html>
+EOF
