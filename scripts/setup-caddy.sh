@@ -22,7 +22,10 @@ fi
 mkdir -p /var/log/caddy
 cat >/etc/caddy/Caddyfile <<EOF
 ${DOMAIN} {
-    tls {
+    # Public ACME cannot work here: DNS is Cloudflare-proxied, so challenges
+    # hit the Cloudflare edge, not this origin. Public TLS is terminated by
+    # Cloudflare; this origin uses Caddy's internal CA instead.
+    tls internal {
         protocols tls1.2 tls1.3
         curves x25519 secp384r1
     }
@@ -50,6 +53,7 @@ ${DOMAIN} {
     }
 }
 www.${DOMAIN} {
+    tls internal
     redir https://${DOMAIN}{uri} permanent
 }
 EOF
@@ -70,7 +74,4 @@ systemctl enable caddy
 systemctl reload caddy || systemctl restart caddy
 
 echo "Caddy + firewall configured for ${DOMAIN} -> 127.0.0.1:${APP_PORT}"
-echo "Next: in Cloudflare set SSL/TLS to 'Full (strict)', enable WAF + rate limits, submit HSTS preload."
-EOF
-chmod +x /home/demon/sovpin/scripts/setup-caddy.sh
-echo "written"
+echo "Origin cert is Caddy-internal (public TLS terminates at Cloudflare). For a public origin cert, use Cloudflare DNS-01 or an Origin CA cert."

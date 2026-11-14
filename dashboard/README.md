@@ -1,37 +1,14 @@
-# SovPin Dashboard
+# SovPin Backend & Developer Console Server (`dashboard/`)
 
-Lightweight monitoring dashboard for the SovPin IPFS storage service.
+This directory contains the Express API server (`server.js`), SQLite WAL multi-tenant ledger (`src/db.js`), Verus JSON-RPC & VDXF `URLRef` compiler (`src/verus-rpc.js`, `src/verus-storage.js`), Kubo RPC client (`src/kubo-service.js`), and integration test suite (`test/`).
 
-## Quick Start
+> **Canonical Documentation:** See [`../docs/ARCHITECTURE_AND_API.md`](../docs/ARCHITECTURE_AND_API.md) for the complete REST API specification, SQLite schema, upload modes, and environment variables, and [`../docs/FOUNDATION.md`](../docs/FOUNDATION.md) for the architectural charter.
+
+## Commands
 
 ```bash
-cd ~/sovpin/dashboard
-npm install
-npm start
-# Open http://127.0.0.1:3001
+cd /home/demon/sovpin/dashboard
+npm run build:web   # Compile ../web into ../web/dist served at /
+npm test            # Run live integration, VDXF, and documentation anti-drift tests
+npm start           # Start server directly on http://127.0.0.1:3001
 ```
-
-## Environment
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `3001` | Dashboard HTTP port |
-
-## Data Sources
-
-| Source | Endpoint | Auth |
-|--------|----------|------|
-| Kubo RPC | `http://100.66.85.86:5001` (Tailscale) | None (Tailscale ACL) |
-| Cloudflare | `cf` CLI | OAuth token |
-| Tailscale | `tailscale status --json` | None (local) |
-| MacBook System | SSH (`~/.ssh/vreal_mirror_ed25519`) | SSH key |
-
-## Security
-
-- Backend binds to `127.0.0.1` only (not exposed to network)
-- Only accessible via Tailscale or localhost
-- No authentication needed (Tailscale ACL protects the MacBook)
-
-## Auto-Refresh
-
-The dashboard polls all endpoints every 10 seconds.

@@ -1,2 +1,8 @@
 node_modules/
 *.log
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+dashboard/data/
+dashboard/.env
+.env

@@ -1,13 +1,25 @@
 {
-  "name": "sovpin-dashboard",
-  "version": "1.0.0",
-  "description": "SovPin IPFS storage service dashboard",
+  "name": "sovpin-platform",
+  "version": "2.0.0",
+  "description": "SovPin — Sovereign IPFS & VDXF Storage Engine for Verus Developers (UK Commercial SaaS)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dashboard": "node server.js"
+    "dashboard": "node server.js",
+    "test": "node --test test/*.test.js",
+    "build:web": "cd ../web && npm run build"
   },
   "dependencies": {
-    "express": "^4.21.0"
+    "busboy": "^1.6.0",
+    "express": "^4.21.0",
+    "qrcode": "^1.5.4",
+    "verus-typescript-primitives": "https://github.com/caribu66/verus-typescript-primitives/archive/b894f9a93c7361616ee2d01d0cffb6d6f9cb43cd.tar.gz",
+    "verusid-ts-client": "https://github.com/VerusCoin/verusid-ts-client/archive/48a1d48a5d076f313022a5891986339851ad7c0c.tar.gz"
+  },
+  "overrides": {
+    "verus-typescript-primitives": "$verus-typescript-primitives",
+    "@bitgo/utxo-lib": "https://github.com/VerusCoin/BitGoJS/archive/1051d8eedf42573403532e51c4bc2846e7caaba9.tar.gz",
+    "verusd-rpc-ts-client": "https://github.com/VerusCoin/verusd-rpc-ts-client/archive/fee3d2b217c2b3b9f63da4527bb852e1cbc5edf2.tar.gz",
+    "blake2b": "https://github.com/VerusCoin/blake2b/archive/578dc12b7b68a3ce76d1e1add1402b28a5890a6b.tar.gz"
   }
 }

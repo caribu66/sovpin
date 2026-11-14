@@ -104,7 +104,7 @@ async function kuboAddStream(fileStream, filename = 'file.bin', mimeType = 'appl
   return { cid: addResult.Hash, kuboSizeBytes: Number(addResult.Size || 0) };
 }
 
-async function kuboPinAdd(cid) {
+async function kuboPinPrimary(cid) {
   const res = await fetch(
     `${config.kuboRpcUrl}/api/v0/pin/add?arg=${encodeURIComponent(cid)}&recursive=true`,
     {
@@ -116,8 +116,24 @@ async function kuboPinAdd(cid) {
     const errText = await res.text().catch(() => '');
     throw new Error(`Kubo pin/add failed (${res.status}): ${errText.slice(0, 200)}`);
   }
-  await replicatePinToSecondaryNodes(cid);
   return res.json();
+}
+
+async function kuboPinAdd(cid) {
+  const result = await kuboPinPrimary(cid);
+  await replicatePinToSecondaryNodes(cid);
+  return result;
+}
+
+// Best-effort replica catch-up that never blocks a request: replica fetches
+// can stall for the full per-replica timeout when the secondary cannot reach
+// the primary over Bitswap. Failures are logged; the auto-sync poller retries
+// them on the next pass.
+function replicateInBackground(cid) {
+  replicatePinToSecondaryNodes(cid).then(
+    () => {},
+    (err) => console.error(`[kubo] background replica pin failed for ${cid}:`, err?.message || err)
+  );
 }
 
 async function kuboPinRm(cid) {
@@ -213,6 +229,32 @@ async function kuboVerifyCid(cid, expectedSizeBytes = null, expectedSha256Hex = 
   };
 }
 
+// Pin a set of discovered CIDs with bounded concurrency. A single unfetchable
+// CID must not stall a request for minutes: each primary pin already carries
+// its own timeout, batching caps the total wait instead of multiplying it by
+// the number of CIDs, and replica catch-up runs in the background (see
+// replicateInBackground). failedCids reports primary-pin failures; replica lag
+// is operational and retried by the auto-sync poller.
+async function kuboPinMany(cids, { concurrency = 8 } = {}) {
+  const unique = [...new Set(cids || [])];
+  let pinnedCount = 0;
+  const failedCids = [];
+  const limit = Math.max(1, Math.min(concurrency, unique.length || 1));
+  for (let i = 0; i < unique.length; i += limit) {
+    const batch = unique.slice(i, i + limit);
+    const results = await Promise.allSettled(batch.map((cid) => kuboPinPrimary(cid)));
+    results.forEach((r, j) => {
+      if (r.status === 'fulfilled') {
+        pinnedCount++;
+        replicateInBackground(batch[j]);
+      } else {
+        failedCids.push({ cid: batch[j], reason: String(r.reason?.message || r.reason || 'pin failed').slice(0, 160) });
+      }
+    });
+  }
+  return { pinnedCount, failedCids, total: unique.length };
+}
+
 async function kuboRepoGc() {
   const res = await fetch(`${config.kuboRpcUrl}/api/v0/repo/gc?silent=true`, {
     method: 'POST',
@@ -282,6 +324,9 @@ module.exports = {
   kuboAddBuffer,
   kuboAddStream,
   kuboPinAdd,
+  kuboPinPrimary,
+  kuboPinMany,
+  replicateInBackground,
   kuboPinRm,
   kuboBlockStat,
   kuboListRecursivePins,

@@ -1,0 +1,358 @@
+/* ============================================================================
+   ANIMATION SYSTEM
+   Consolidated, premium micro-interaction animations
+   ============================================================================ */
+
+/* Float Animation - Reserved for decorative media, never core controls. */
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* Shimmer - Loading skeleton effect */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%) skewX(-15deg);
+  }
+
+  100% {
+    transform: translateX(200%) skewX(-15deg);
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 1.5s ease-in-out infinite;
+  background: var(--overlay-subtle);
+}
+
+/* Premium Skeleton Shimmer - Gradient-based loading */
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgb(var(--surface)) 25%,
+    rgb(var(--surface-hover)) 50%,
+    rgb(var(--surface)) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s infinite linear;
+}
+
+/* Post Confirmed - Success feedback for posts */
+@keyframes post-confirmed {
+  0% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.005);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+.animate-post-confirmed {
+  animation: post-confirmed 0.8s ease-out;
+}
+
+/* Slide In Smooth - Elegant entrance */
+@keyframes slide-in-smooth {
+  0% {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.98);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-slide-in-smooth {
+  animation: slide-in-smooth 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Pop In - Restrained entrance for cards/modals. */
+@keyframes pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-pop-in {
+  animation: pop-in 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Button Success - Subtle press feedback */
+@keyframes button-success {
+  0% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(0.96);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+.animate-button-success {
+  animation: button-success 0.2s ease-out;
+}
+
+/* Fade Scale In - Soft entrance with scale */
+@keyframes fade-scale-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-fade-scale-in {
+  animation: fade-scale-in 0.25s ease-out;
+}
+
+/* Success Ring - Checkmark style success animation */
+@keyframes success-ring {
+  0% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+.animate-success-ring {
+  animation: success-ring 0.6s ease-out;
+}
+
+/* Shake - Error/attention animation */
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  10%,
+  30%,
+  50%,
+  70%,
+  90% {
+    transform: translateX(-4px);
+  }
+
+  20%,
+  40%,
+  60%,
+  80% {
+    transform: translateX(4px);
+  }
+}
+
+.animate-shake {
+  animation: shake 0.5s ease-out;
+}
+
+/* Motion is progressive enhancement. Preserve state changes while removing
+   movement for users who request reduced motion. */
+@keyframes hero-breathe {
+  0%,
+  100% {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+
+  50% {
+    opacity: 0.7;
+    transform: translate(2%, -1%);
+  }
+}
+
+.animate-hero-breathe {
+  animation: hero-breathe 24s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* Progress Indefinite - Smooth progress bar loading */
+@keyframes progress-indefinite {
+  0% {
+    left: 0%;
+    width: 0%;
+  }
+  50% {
+    left: 25%;
+    width: 75%;
+  }
+  100% {
+    left: 100%;
+    width: 0%;
+  }
+}
+
+.animate-progress-indefinite {
+  animation: progress-indefinite 1.5s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+/* Pulse Ring - Circular ripple feedback for status ceremonies */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* ==============================================
+   MISSING KEYFRAMES FOR TAILWIND V4 THEME
+   ============================================== */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* =====================================================
+   REDUCED MOTION ACCESSIBILITY
+   Respects user's prefers-reduced-motion setting.
+   ===================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-float,
+  .animate-shimmer,
+  .skeleton-shimmer,
+  .animate-pulse-ring,
+  .animate-progress-indefinite {
+    animation: none !important;
+  }
+
+  .animate-in,
+  .animate-slide-in-smooth,
+  .animate-pop-in,
+  .animate-fade-scale-in,
+  .animate-post-confirmed,
+  .animate-button-success,
+  .animate-success-ring,
+  .animate-shake {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
+  .hover-lift,
+  .cinematic-card,
+  .magnetic-action,
+  .tactical-press,
+  .motion-standard,
+  .motion-emphasized,
+  .motion-fast,
+  .motion-bounce {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================================================
+   Decorative infinite loops as CSS animations.
+   Unlike framer-motion rAF loops, CSS animations are compositor-driven and do
+   not mutate the DOM every frame, so pages hosting them can reach a quiet
+   (settled) state. Reduced motion is handled globally above and in-component.
+   ============================================================================ */
+
+/* Orbiting ring in the identity vault simulator (was: 15s framer-motion loop). */
+@keyframes orbit-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-orbit-spin {
+  animation: orbit-spin 15s linear infinite;
+}
+
+/* Scanning dot on the fee-flow line in the namespace tree (was: 2s framer-motion
+   loop animating `left`). Animates transform in container-width units instead, so
+   the sweep stays compositor-driven; the track sets container-type: inline-size. */
+@keyframes scan-dot {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100cqw);
+  }
+}
+
+.animate-scan-dot {
+  animation: scan-dot 2s linear infinite;
+}

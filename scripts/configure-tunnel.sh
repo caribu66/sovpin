@@ -21,6 +21,10 @@ echo "[2/3] Updating tunnel ingress..."
   "config": {
     "ingress": [
       {
+        "hostname": "dashboard.sovpin.com",
+        "service": "http://127.0.0.1:3001"
+      },
+      {
         "hostname": "ipfs.sovpin.com",
         "path": "^/ipfs/[A-Za-z0-9]+",
         "service": "http://100.66.85.86:8080"

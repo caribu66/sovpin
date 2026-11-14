@@ -1,0 +1,1008 @@
+/* Fonts: @fontsource variable fonts — imported here (CSS entry) so Vite
+   discovers them at CSS processing time, earlier than a JS-side import.
+   This reduces Flash of Unstyled Text on initial page load. */
+@import '@fontsource-variable/outfit/wght.css';
+@import '@fontsource-variable/space-grotesk/wght.css';
+@import '@fontsource-variable/jetbrains-mono/wght.css';
+
+/* ============================================================================
+   MAIN STYLESHEET
+   Import order matters in CSS - base styles first
+   ============================================================================ */
+
+@import 'tailwindcss';
+
+/* Split into logical files for maintainability */
+@import './styles/theme.css';
+@import './styles/utilities.css';
+@import './styles/components.css';
+@import './styles/animations.css';
+
+@keyframes border-wave {
+  0% {
+    border-color: rgb(var(--color-verus-blue) / 0.35);
+  }
+  100% {
+    border-color: rgb(var(--color-verus-blue) / 0.1);
+  }
+}
+
+@keyframes scan-line {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(176px);
+    opacity: 0;
+  }
+}
+
+.animate-border-wave {
+  animation: border-wave 2.5s infinite cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-scan-line {
+  animation: scan-line 2.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Apply the accessibility contract to CSS transitions as well as keyframes.
+     Component-level motion-reduce classes remain useful documentation, but a
+     shared fallback prevents an unguarded hover/media transition from making
+     reduced-motion users wait through the full visual effect. */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .animate-border-wave,
+  .animate-scan-line,
+  .animate-pulse,
+  .animate-spin,
+  .animate-bounce,
+  .animate-ping {
+    animation: none !important;
+  }
+}
+
+/* ============================================================================
+   THEME VARIABLES (DARK/LIGHT/MIDNIGHT)
+   Must be defined after imports
+   ============================================================================ */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  overflow-x: clip;
+  background-color: rgb(var(--bg-primary));
+  /* Apple-grade subpixel typography rendering */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  /* Android Chrome's default tap-flash rectangle doesn't respect border-radius and clashes
+     with the app's own active: micro-interactions (see .active-shrink) — kill it here and
+     let the deliberate active/focus-visible states carry tap feedback instead. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Dark is the :root default: a stored or unknown theme falls back here. */
+:root,
+[data-theme='dark'] {
+  --bg-primary: 9 10 12;
+  --bg-secondary: 17 19 23;
+  --color-obsidian: 9 10 12;
+  --surface: 17 19 23;
+  --surface-hover: 24 27 32;
+  --surface-elevated: 24 27 32;
+  --brand-primary: 16 185 129;
+  --brand-secondary: 249 115 22;
+  /* Ink on brand fills — emerald brand needs dark text for WCAG AA */
+  --brand-foreground: 15 23 42;
+  --accent-primary: 16 185 129;
+  --accent-secondary: 249 115 22;
+  --accent-danger: 248 113 133;
+  --accent-muted: 163 163 163;
+
+  --color-gold: 212 164 59;
+  --color-cyan: 34 211 238;
+  /* Dark mode keeps cyan luminous; light mode overrides the hue and ink below
+     so cyan remains a readable text/status color as well as a fill. */
+  --accent-cyan-foreground: 15 23 42;
+  /* Dark mode keeps success luminous; light mode uses a darker semantic fill
+     with a light foreground for both badges and compact controls. */
+  --success-foreground: 15 23 42;
+  --color-amber: 251 191 36;
+  --color-amber-muted: 180 130 20;
+  --color-purple: 192 132 252;
+  --color-emerald: 52 211 153;
+  --color-emerald-muted: 16 185 129;
+  --color-blue: 96 165 250;
+  --color-blue-muted: 59 130 246;
+  --color-red: 248 113 113;
+  --color-red-muted: 220 38 38;
+
+  --color-teal: 20 184 166;
+  --color-sky: 56 189 248;
+  --color-violet: 167 139 250;
+  --color-orange: 251 146 60;
+  --color-rose: 251 113 133;
+  --color-indigo: 129 140 248;
+  --color-pink: 244 114 182;
+
+  --color-verus-blue: 49 101 212;
+  --color-ink-brown: 74 59 43;
+
+  --text-primary: 255 255 255;
+  --text-secondary: 225 225 225;
+  --text-muted: 180 180 180;
+  --text-tertiary: 140 140 140;
+
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-base: rgba(255, 255, 255, 0.1);
+  --border-bright: rgba(255, 255, 255, 0.2);
+
+  --bg-base: rgb(var(--bg-primary));
+  --bg-sidebar: rgb(var(--bg-secondary));
+  --bg-surface: rgb(var(--surface));
+  --bg-elevated: rgb(var(--surface-elevated));
+
+  /* Gallery/Layout Artifacts */
+  --vignette-color: rgba(0, 0, 0, 0.65);
+  --text-on-media: rgb(255 255 255);
+
+  /* Elevation */
+  --elevation-0: none;
+  --elevation-1: 0 1px 2px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08);
+  --elevation-2: 0 2px 4px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08);
+  --elevation-3: 0 4px 8px rgba(0, 0, 0, 0.14), 0 3px 12px rgba(0, 0, 0, 0.1);
+  --elevation-4: 0 8px 16px rgba(0, 0, 0, 0.16), 0 6px 20px rgba(0, 0, 0, 0.12);
+  --elevation-5: 0 12px 24px rgba(0, 0, 0, 0.18), 0 8px 32px rgba(0, 0, 0, 0.14);
+
+  /* Motion */
+  --ease-standard: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-emphasized: cubic-bezier(0.4, 0, 0, 1);
+  --ease-decelerated: cubic-bezier(0, 0, 0.2, 1);
+  --ease-accelerated: cubic-bezier(0.4, 0, 1, 1);
+  --ease-bounce: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --duration-instant: 80ms;
+  --duration-fast: 120ms;
+  --duration-standard: 160ms;
+  --duration-emphasized: 200ms;
+  --duration-complex: 250ms;
+  --duration-cinematic: 1500ms;
+
+  /* Overlays - Dark */
+  --overlay-subtle: rgba(255, 255, 255, 0.08);
+  --overlay-light: rgba(255, 255, 255, 0.1);
+  --overlay-medium: rgba(255, 255, 255, 0.2);
+  --overlay-strong: rgba(255, 255, 255, 0.3);
+  --overlay-heavy: rgba(255, 255, 255, 0.5);
+  --overlay-intense: rgba(255, 255, 255, 0.8);
+  --border-overlay-subtle: rgba(255, 255, 255, 0.05);
+  --border-overlay-light: rgba(255, 255, 255, 0.1);
+  --border-overlay-medium: rgba(255, 255, 255, 0.2);
+  --border-overlay-strong: rgba(255, 255, 255, 0.3);
+  --ring-overlay-light: rgba(255, 255, 255, 0.1);
+  --ring-overlay-medium: rgba(255, 255, 255, 0.2);
+  --surface-highlight: rgba(255, 255, 255, 0.05);
+
+  /* Shadows */
+  --shadow-color-subtle: rgba(0, 0, 0, 0.3);
+  --shadow-color-medium: rgba(0, 0, 0, 0.5);
+  --shadow-color-strong: rgba(0, 0, 0, 0.7);
+  --shadow-color-heavy: rgba(0, 0, 0, 0.85);
+  --shadow-color-intense: rgba(0, 0, 0, 0.95);
+
+  /* Gallery semantic variables */
+  --gallery-bg-primary: 0 0 0;
+  --gallery-bg-secondary: 0 0 0;
+  --gallery-surface: 0 0 0;
+  --gallery-surface-elevated: 3 3 3;
+  --gallery-silhouette: 4 4 4;
+  --gallery-border-subtle: rgba(255, 255, 255, 0.08);
+  --gallery-mesh-opacity: 0;
+  --gallery-mesh-gradient: linear-gradient(180deg, transparent 0%, transparent 100%);
+}
+
+[data-theme='light'] {
+  --bg-primary: 255 255 255;
+  --bg-secondary: 255 255 255;
+  --surface: 255 255 255;
+  --surface-hover: 248 250 252;
+  --surface-elevated: 255 255 255;
+
+  --vignette-color: rgba(0, 0, 0, 0.04);
+
+  --brand-primary: 29 78 216;
+  --brand-secondary: 124 58 237;
+  --brand-foreground: 255 255 255;
+  --accent-primary: 29 78 216;
+  /* WCAG AA fix (2026-09-08): 22 163 74 only reached 3.30:1 on white even at
+     full opacity — every plain success/text-accent-secondary use in light
+     mode was failing AA. Darkened to clear 4.5:1 with margin. */
+  --accent-secondary: 17 125 57;
+  /* WCAG AA fix (2026-09-08): 220 38 38 passed at only 4.83:1 on white — too
+     thin a margin for any reduced-opacity danger-text ladder. Darkened
+     slightly for a safer margin (contrast audit, Phase 3). */
+  --accent-danger: 203 35 35;
+  --accent-muted: 71 85 105;
+
+  --text-primary: 15 23 42;
+  --text-secondary: 51 65 85;
+  --text-muted: 71 85 105;
+  --text-tertiary: 100 116 139;
+
+  --border-subtle: rgba(15, 23, 42, 0.06);
+  --border-base: rgba(15, 23, 42, 0.1);
+  --border-bright: rgba(15, 23, 42, 0.2);
+
+  --elevation-1: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --elevation-2: 0 4px 6px -1px rgba(15, 23, 42, 0.1), 0 2px 4px -1px rgba(15, 23, 42, 0.06);
+  --elevation-3: 0 10px 15px -3px rgba(15, 23, 42, 0.1), 0 4px 6px -2px rgba(15, 23, 42, 0.05);
+  --elevation-4: 0 20px 25px -5px rgba(15, 23, 42, 0.1), 0 10px 10px -5px rgba(15, 23, 42, 0.04);
+  --elevation-5: 0 25px 50px -12px rgba(15, 23, 42, 0.25);
+
+  --overlay-subtle: rgba(0, 0, 0, 0.04);
+  --overlay-light: rgba(0, 0, 0, 0.06);
+  --overlay-medium: rgba(0, 0, 0, 0.08);
+  --overlay-strong: rgba(0, 0, 0, 0.1);
+  --overlay-heavy: rgba(0, 0, 0, 0.15);
+  --overlay-intense: rgba(0, 0, 0, 0.2);
+  --border-overlay-subtle: rgba(15, 23, 42, 0.04);
+  --border-overlay-light: rgba(15, 23, 42, 0.1);
+  --border-overlay-dark: rgba(255, 255, 255, 0.05);
+  --border-overlay-medium: rgba(15, 23, 42, 0.12);
+  --border-overlay-strong: rgba(15, 23, 42, 0.18);
+  --ring-overlay-light: rgba(15, 23, 42, 0.08);
+  --ring-overlay-medium: rgba(15, 23, 42, 0.12);
+  --surface-highlight: rgba(0, 0, 0, 0.05);
+
+  /* Background aliases */
+  --bg-base: rgb(var(--bg-primary));
+  --bg-sidebar: rgb(var(--bg-secondary));
+  --bg-surface: rgb(var(--surface));
+  --bg-elevated: rgb(var(--surface-elevated));
+
+  /* Obsidian (used in glass tokens) */
+  --color-obsidian: 240 242 247;
+
+  /* Extended palette — light mode uses higher-contrast 600 variants */
+  --color-teal: 13 148 136;
+  --color-sky: 2 132 199;
+  --color-violet: 124 58 237;
+  --color-orange: 234 88 12;
+  --color-rose: 225 29 72;
+  --color-indigo: 79 70 229;
+  --color-pink: 219 39 119;
+  --color-gold: 180 130 40;
+  --color-cyan: 3 105 161;
+  --accent-cyan-foreground: 255 255 255;
+  /* WCAG AA fix (2026-09-08): 217 119 6 only reached 3.19:1 on white even at
+     full opacity — every plain text-warning use in light mode was failing
+     AA. Darkened to clear 4.5:1 with margin (contrast audit, Phase 3). */
+  --color-amber: 146 64 14;
+  --color-amber-muted: 180 90 10;
+  --color-purple: 126 34 206;
+  --color-emerald: 4 120 87;
+  --success-foreground: 255 255 255;
+  --color-emerald-muted: 4 120 87;
+  --color-blue: 37 99 235;
+  --color-blue-muted: 29 78 216;
+  --color-red: 220 38 38;
+  --color-red-muted: 185 28 28;
+  --color-verus-blue: 36 82 176;
+  --color-ink-brown: 100 70 50;
+
+  /* Shadows */
+  --shadow-color-subtle: rgba(15, 23, 42, 0.05);
+  --shadow-color-medium: rgba(15, 23, 42, 0.08);
+  --shadow-color-strong: rgba(15, 23, 42, 0.12);
+  --shadow-color-heavy: rgba(15, 23, 42, 0.16);
+  --shadow-color-intense: rgba(15, 23, 42, 0.2);
+
+  /* Gallery semantic variables */
+  --gallery-bg-primary: 255 255 255;
+  --gallery-bg-secondary: 255 255 255;
+  --gallery-surface: 255 255 255;
+  --gallery-surface-elevated: 255 255 255;
+  --gallery-silhouette: 226 232 240;
+  --gallery-border-subtle: rgba(15, 23, 42, 0.08);
+  --gallery-mesh-opacity: 0.04;
+  --gallery-mesh-gradient: linear-gradient(
+    180deg,
+    rgba(var(--brand-primary), 0.05) 0%,
+    rgba(var(--brand-primary), 0) 60%,
+    rgba(var(--accent-secondary), 0.05) 100%
+  );
+}
+
+[data-theme='midnight'] {
+  --bg-primary: 0 0 0;
+  --bg-secondary: 5 5 8;
+  --surface: 10 10 14;
+  --surface-hover: 16 16 20;
+  --surface-elevated: 24 24 28;
+
+  --bg-base: rgb(var(--bg-primary));
+  --bg-sidebar: rgb(var(--bg-secondary));
+  --bg-surface: rgb(var(--surface));
+  --bg-elevated: rgb(var(--surface-elevated));
+
+  --vignette-color: rgba(0, 0, 0, 0.7);
+
+  --brand-primary: 96 165 250;
+  --brand-secondary: 139 92 246;
+  --brand-foreground: 15 23 42;
+  --accent-primary: 96 165 250;
+  --accent-secondary: 45 212 191;
+  --accent-muted: 71 85 105;
+
+  --text-primary: 240 244 255;
+  --text-secondary: 148 163 184;
+  /* WCAG AA fix (2026-09-08): both values failed 4.5:1 against this theme's
+     own surface/surface-elevated even at full opacity (contrast audit,
+     Phase 3). Brightened with margin; relative hierarchy vs. secondary kept. */
+  --text-muted: 132 150 174;
+  --text-tertiary: 116 134 158;
+
+  --border-subtle: rgba(255, 255, 255, 0.04);
+  --border-base: rgba(255, 255, 255, 0.08);
+  --border-bright: rgba(255, 255, 255, 0.15);
+
+  /* Elevation (inherited from dark but blue-tinted shadow colors used below) */
+  --elevation-0: none;
+  --elevation-1: 0 1px 2px var(--shadow-color-subtle), 0 1px 3px var(--shadow-color-medium);
+  --elevation-2: 0 2px 4px var(--shadow-color-medium), 0 2px 6px var(--shadow-color-subtle);
+  --elevation-3: 0 4px 8px var(--shadow-color-strong), 0 3px 12px var(--shadow-color-medium);
+  --elevation-4: 0 8px 16px var(--shadow-color-heavy), 0 6px 20px var(--shadow-color-strong);
+  --elevation-5: 0 12px 24px var(--shadow-color-intense), 0 8px 32px var(--shadow-color-heavy);
+
+  /* Motion: inherits the standard dark-theme values from :root above */
+
+  --overlay-subtle: rgba(255, 255, 255, 0.03);
+  --overlay-light: rgba(255, 255, 255, 0.06);
+  --overlay-medium: rgba(255, 255, 255, 0.1);
+  --overlay-strong: rgba(255, 255, 255, 0.15);
+  --overlay-heavy: rgba(255, 255, 255, 0.25);
+  --overlay-intense: rgba(255, 255, 255, 0.4);
+
+  --border-overlay-subtle: rgba(255, 255, 255, 0.03);
+  --border-overlay-light: rgba(255, 255, 255, 0.06);
+  --border-overlay-medium: rgba(255, 255, 255, 0.1);
+  --border-overlay-strong: rgba(255, 255, 255, 0.15);
+  --ring-overlay-light: rgba(255, 255, 255, 0.05);
+  --ring-overlay-medium: rgba(255, 255, 255, 0.1);
+  --surface-highlight: rgba(255, 255, 255, 0.05);
+
+  /* Obsidian (dark navy for midnight glass tokens) */
+  --color-obsidian: 2 4 12;
+
+  /* Shadows - Midnight Blue Tint */
+  --shadow-color-subtle: rgba(0, 5, 30, 0.3);
+  --shadow-color-medium: rgba(0, 5, 30, 0.5);
+  --shadow-color-strong: rgba(0, 5, 30, 0.7);
+  --shadow-color-heavy: rgba(0, 5, 30, 0.85);
+  --shadow-color-intense: rgba(0, 5, 30, 0.95);
+
+  /* Gallery semantic variables */
+  --gallery-bg-primary: 2 4 12;
+  --gallery-bg-secondary: 3 6 18;
+  --gallery-surface: 6 10 24;
+  --gallery-surface-elevated: 10 14 30;
+  --gallery-silhouette: 14 20 38;
+  --gallery-border-subtle: rgba(148, 163, 184, 0.16);
+  --gallery-mesh-opacity: 0.06;
+  --gallery-mesh-gradient: linear-gradient(
+    180deg,
+    rgba(var(--brand-primary), 0.1) 0%,
+    rgba(var(--brand-primary), 0) 50%,
+    rgba(var(--accent-secondary), 0.08) 100%
+  );
+}
+
+/* ============================================================
+   GALLERY THEME OVERRIDE BLOCK
+   Activates when data-gallery-theme="true" is set on page root
+   ============================================================ */
+[data-gallery-theme='true'] {
+  /* Map gallery variables to theme system */
+  --bg-primary: var(--gallery-bg-primary);
+  --bg-secondary: var(--gallery-bg-secondary);
+  --surface: var(--gallery-surface);
+  --surface-hover: var(--gallery-silhouette);
+  --surface-elevated: var(--gallery-surface-elevated);
+  --color-obsidian: var(--gallery-surface);
+
+  /* Remove all borders and separators for flat aesthetic */
+  --border-subtle: transparent;
+  --border-base: transparent;
+  --border-bright: transparent;
+
+  /* Map to computed background variables */
+  --bg-base: rgb(var(--bg-primary));
+  --bg-sidebar: rgb(var(--bg-secondary));
+  --bg-surface: rgb(var(--surface));
+  --bg-elevated: rgb(var(--gallery-surface-elevated));
+
+  /* Disable all shadows for minimal, flat appearance */
+  --shadow-color-subtle: transparent;
+  --shadow-color-medium: transparent;
+  --shadow-color-strong: transparent;
+  --shadow-color-heavy: transparent;
+  --shadow-color-intense: transparent;
+
+  /* Disable elevation styling (card shadows/depth) */
+  --elevation-0: none !important;
+  --elevation-1: none !important;
+  --elevation-2: none !important;
+  --elevation-3: none !important;
+  --elevation-4: none !important;
+  --elevation-5: none !important;
+}
+
+html[data-theme='dark'] [data-gallery-theme='true'] {
+  --text-primary: 255 255 255;
+  --text-secondary: 225 225 225;
+  --text-muted: 180 180 180;
+}
+
+html[data-theme='light'] [data-gallery-theme='true'] {
+  --text-primary: 15 23 42;
+  --text-secondary: 51 65 85;
+  --text-muted: 71 85 105;
+}
+
+/* Re-apply the primary gallery background to the wrapper itself */
+[data-gallery-theme='true'] {
+  background-color: rgb(var(--gallery-bg-primary)) !important;
+}
+
+/* ============================================================
+   GALLERY COMPONENT STYLING
+   ============================================================ */
+[data-gallery-theme='true'] .gallery-theme-panel {
+  background-color: rgb(var(--gallery-surface));
+  border-color: transparent;
+}
+
+[data-gallery-theme='true'] .gallery-theme-subpanel {
+  background-color: rgb(var(--gallery-surface-elevated));
+  border-color: var(--gallery-border-subtle);
+}
+
+[data-gallery-theme='true'] .ui-nft-card-skeleton {
+  background-color: rgb(var(--gallery-surface));
+  border-color: var(--gallery-border-subtle);
+}
+
+/* ============================================================
+   GALLERY CARD FLATTENING
+   Remove all visual depth and separators from cards
+   NOTE: Scoped to known card/gallery classes instead of
+   broad substring selectors to avoid breaking buttons,
+   inputs, modals, focus rings, and other interactive elements.
+   CSS variables (--border-*, --elevation-*, --shadow-color-*)
+   handle the flattening at the token level (see .gallery-theme
+   in theme.css). These selectors are safety net overrides for
+   components that use hardcoded Tailwind classes.
+   ============================================================ */
+[data-gallery-theme='true'] .ui-nft-card [class*='rounded'],
+[data-gallery-theme='true'] [class*='nft-card'] [class*='rounded'],
+[data-gallery-theme='true']
+  [class*='gallery-theme']
+  [class*='rounded']:not(button, input, form, kbd) {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+[data-gallery-theme='true'] .ui-nft-card [class*='shadow'],
+[data-gallery-theme='true'] [class*='nft-card'] [class*='shadow'],
+[data-gallery-theme='true']
+  [class*='gallery-theme']
+  [class*='shadow']:not(button, input, form, kbd) {
+  box-shadow: none !important;
+}
+
+[data-gallery-theme='true'] .ui-nft-card [class*='border'],
+[data-gallery-theme='true'] [class*='nft-card'] [class*='border'],
+[data-gallery-theme='true']
+  [class*='gallery-theme']
+  [class*='border']:not(button, input, form, kbd) {
+  border: none !important;
+}
+
+[data-gallery-theme='true'] .ui-nft-card [class*='bg-surface'],
+[data-gallery-theme='true'] [class*='nft-card'] [class*='bg-surface'],
+[data-gallery-theme='true'] [class*='gallery-theme'] [class*='bg-surface']:not(input, form, kbd) {
+  background-color: transparent !important;
+}
+
+/* ============================================================
+   GALLERY LAYOUT STRUCTURE
+   Override parent container frames and backgrounds
+   ============================================================ */
+.rounded-4xl:has([data-gallery-theme='true']) {
+  border-color: transparent !important;
+  border: none !important;
+  background-color: rgb(var(--gallery-bg-primary)) !important;
+  box-shadow: none !important;
+}
+
+/* ============================================================
+    PAGE-LEVEL PURE BLACK OVERRIDES
+     Ensures entire page background is pure black when gallery active
+     ============================================================ */
+body:has([data-gallery-theme='true']),
+html:has([data-gallery-theme='true']) {
+  background-color: rgb(var(--gallery-bg-primary)) !important;
+}
+
+body:has([data-marketplace-theme='true']),
+html:has([data-marketplace-theme='true']) {
+  background-color: rgb(var(--bg-primary));
+}
+
+body:has([data-music-theme='true']),
+html:has([data-music-theme='true']) {
+  background-color: rgb(var(--gallery-bg-primary)) !important;
+}
+
+body:has([data-gallery-theme='true']) main,
+html:has([data-gallery-theme='true']) main {
+  background-color: rgb(var(--gallery-bg-primary)) !important;
+}
+
+body:has([data-marketplace-theme='true']) main,
+html:has([data-marketplace-theme='true']) main {
+  background-color: rgb(var(--bg-primary));
+}
+
+body:has([data-music-theme='true']) main:not([data-now-playing-main]),
+html:has([data-music-theme='true']) main:not([data-now-playing-main]) {
+  background-color: rgb(var(--gallery-bg-primary)) !important;
+}
+
+body:has([data-gallery-theme='true']) #main-content,
+html:has([data-gallery-theme='true']) #main-content {
+  background-color: rgb(var(--gallery-bg-primary)) !important;
+}
+
+body:has([data-marketplace-theme='true']) #main-content,
+html:has([data-marketplace-theme='true']) #main-content {
+  background-color: rgb(var(--bg-primary));
+}
+
+body:has([data-music-theme='true']) #main-content,
+html:has([data-music-theme='true']) #main-content {
+  background-color: rgb(var(--gallery-bg-primary)) !important;
+}
+
+body:has([data-gallery-theme='true']) footer,
+html:has([data-gallery-theme='true']) footer {
+  background-color: rgb(var(--gallery-bg-primary)) !important;
+  border-color: transparent !important;
+  border-top: none !important;
+}
+
+body:has([data-marketplace-theme='true']) footer,
+html:has([data-marketplace-theme='true']) footer {
+  background-color: rgb(var(--bg-primary));
+}
+
+body:has([data-music-theme='true']) footer,
+html:has([data-music-theme='true']) footer {
+  background-color: rgb(var(--gallery-bg-primary)) !important;
+}
+
+html[data-theme='dark']:has([data-artist-portfolio-theme='true']) {
+  background-color: rgb(0 0 0) !important;
+}
+
+html[data-theme='light']:has([data-artist-portfolio-theme='true']) {
+  background-color: rgb(255 255 255) !important;
+}
+
+html[data-theme='dark'] body:has([data-artist-portfolio-theme='true']) {
+  background-color: rgb(0 0 0) !important;
+}
+
+html[data-theme='light'] body:has([data-artist-portfolio-theme='true']) {
+  background-color: rgb(255 255 255) !important;
+}
+
+html[data-theme='dark']:has([data-artist-portfolio-theme='true']) main,
+html[data-theme='dark']:has([data-artist-portfolio-theme='true']) #main-content,
+html[data-theme='dark']:has([data-artist-portfolio-theme='true']) footer,
+html[data-theme='dark'] body:has([data-artist-portfolio-theme='true']) main,
+html[data-theme='dark'] body:has([data-artist-portfolio-theme='true']) #main-content,
+html[data-theme='dark'] body:has([data-artist-portfolio-theme='true']) footer {
+  background-color: rgb(0 0 0) !important;
+}
+
+html[data-theme='light']:has([data-artist-portfolio-theme='true']) main,
+html[data-theme='light']:has([data-artist-portfolio-theme='true']) #main-content,
+html[data-theme='light']:has([data-artist-portfolio-theme='true']) footer,
+html[data-theme='light'] body:has([data-artist-portfolio-theme='true']) main,
+html[data-theme='light'] body:has([data-artist-portfolio-theme='true']) #main-content,
+html[data-theme='light'] body:has([data-artist-portfolio-theme='true']) footer {
+  background-color: rgb(255 255 255) !important;
+}
+
+html[data-theme='dark'] [data-artist-portfolio-theme='true'] {
+  --bg-primary: 0 0 0;
+  --bg-secondary: 0 0 0;
+  --color-bg-base: rgb(0 0 0);
+  --surface: 0 0 0;
+  --surface-hover: 0 0 0;
+  --surface-elevated: 0 0 0;
+  --color-obsidian: 0 0 0;
+  --bg-base: rgb(var(--bg-primary));
+  --bg-sidebar: rgb(var(--bg-secondary));
+  --bg-surface: rgb(var(--surface));
+  --bg-elevated: rgb(var(--surface-elevated));
+  --overlay-subtle: rgba(0, 0, 0, 0.06);
+  --overlay-light: rgba(0, 0, 0, 0.1);
+  --overlay-medium: rgba(0, 0, 0, 0.18);
+  --overlay-strong: rgba(0, 0, 0, 0.28);
+  --overlay-heavy: rgba(0, 0, 0, 0.45);
+  --overlay-intense: rgba(0, 0, 0, 0.75);
+  --border-overlay-subtle: rgba(255, 255, 255, 0.04);
+  --border-overlay-light: rgba(255, 255, 255, 0.06);
+  --border-overlay-medium: rgba(255, 255, 255, 0.08);
+  --border-overlay-strong: rgba(255, 255, 255, 0.12);
+  --ring-overlay-light: rgba(255, 255, 255, 0.06);
+  --ring-overlay-medium: rgba(255, 255, 255, 0.08);
+  --surface-highlight: rgba(255, 255, 255, 0.05);
+  background-color: rgb(0 0 0) !important;
+}
+
+html[data-theme='light'] [data-artist-portfolio-theme='true'] {
+  --bg-primary: 255 255 255;
+  --bg-secondary: 255 255 255;
+  --color-bg-base: rgb(255 255 255);
+  --surface: 255 255 255;
+  --surface-hover: 248 250 252;
+  --surface-elevated: 255 255 255;
+  --color-obsidian: 240 242 247;
+  --bg-base: rgb(var(--bg-primary));
+  --bg-sidebar: rgb(var(--bg-secondary));
+  --bg-surface: rgb(var(--surface));
+  --bg-elevated: rgb(var(--surface-elevated));
+  --overlay-subtle: rgba(0, 0, 0, 0.04);
+  --overlay-light: rgba(0, 0, 0, 0.06);
+  --overlay-medium: rgba(0, 0, 0, 0.08);
+  --overlay-strong: rgba(0, 0, 0, 0.1);
+  --overlay-heavy: rgba(0, 0, 0, 0.15);
+  --overlay-intense: rgba(0, 0, 0, 0.2);
+  --border-overlay-subtle: rgba(15, 23, 42, 0.04);
+  --border-overlay-light: rgba(15, 23, 42, 0.1);
+  --border-overlay-medium: rgba(15, 23, 42, 0.12);
+  --border-overlay-strong: rgba(15, 23, 42, 0.18);
+  --ring-overlay-light: rgba(15, 23, 42, 0.08);
+  --ring-overlay-medium: rgba(15, 23, 42, 0.12);
+  --surface-highlight: rgba(0, 0, 0, 0.05);
+  background-color: rgb(255 255 255) !important;
+}
+
+/* Shared flattening for artist-portfolio surfaces (both themes): kill borders,
+   shadows, and elevation. Same selectors as the two blocks above, so
+   specificity/cascade are unchanged. */
+html[data-theme='dark'] [data-artist-portfolio-theme='true'],
+html[data-theme='light'] [data-artist-portfolio-theme='true'] {
+  --border-subtle: transparent;
+  --border-base: transparent;
+  --border-bright: transparent;
+  --shadow-color-subtle: transparent;
+  --shadow-color-medium: transparent;
+  --shadow-color-strong: transparent;
+  --shadow-color-heavy: transparent;
+  --shadow-color-intense: transparent;
+  --elevation-0: none !important;
+  --elevation-1: none !important;
+  --elevation-2: none !important;
+  --elevation-3: none !important;
+  --elevation-4: none !important;
+  --elevation-5: none !important;
+}
+
+/* ============================================================
+   MARKETPLACE NO-GLOW RULES
+   Remove halos/shadows while preserving structural borders
+   ============================================================ */
+[data-marketplace-theme='true'] {
+  --shadow-color-subtle: transparent;
+  --shadow-color-medium: transparent;
+  --shadow-color-strong: transparent;
+  --shadow-color-heavy: transparent;
+  --shadow-color-intense: transparent;
+
+  --elevation-1: none;
+  --elevation-2: none;
+  --elevation-3: none;
+  --elevation-4: none;
+  --elevation-5: none;
+
+  /* One accent on Market: brand blue only — no competing VRSCTEST cyan.
+   * Override both the RGB triple and the Tailwind @theme color token so
+   * `text-accent-cyan` / borders inside Market resolve to brand blue. */
+  --color-cyan: var(--brand-primary);
+  --color-accent-cyan: rgb(var(--brand-primary));
+}
+
+[data-marketplace-theme='true'] [class*='shadow'] {
+  box-shadow: none !important;
+}
+
+[data-marketplace-theme='true'] [class*='drop-shadow'] {
+  filter: none !important;
+}
+
+[data-music-theme='true'] {
+  --shadow-color-subtle: transparent;
+  --shadow-color-medium: transparent;
+  --shadow-color-strong: transparent;
+  --shadow-color-heavy: transparent;
+  --shadow-color-intense: transparent;
+
+  --elevation-1: none;
+  --elevation-2: none;
+  --elevation-3: none;
+  --elevation-4: none;
+  --elevation-5: none;
+}
+
+[data-music-theme='true'] [class*='shadow'] {
+  box-shadow: none !important;
+}
+
+[data-music-theme='true'] [class*='drop-shadow'] {
+  filter: none !important;
+}
+
+/* Dark lock for scoped components */
+.theme-dark-lock {
+  color: rgb(var(--text-primary));
+  --bg-primary: 0 0 0;
+  --bg-secondary: 6 6 8;
+  --surface: 14 14 18;
+  --surface-hover: 20 20 24;
+  --surface-elevated: 28 28 34;
+  --brand-primary: 147 197 253;
+  --brand-secondary: 196 181 253;
+  --brand-foreground: 15 23 42;
+  --accent-primary: 96 165 250;
+  --accent-secondary: 74 166 88;
+  --accent-muted: 71 85 105;
+  --text-primary: 248 250 252;
+  --text-secondary: 180 194 210;
+  --text-muted: 180 194 210;
+  --text-tertiary: 120 135 155;
+  /* These aliases are defined in Tailwind's theme layer and do not inherit
+     from the raw semantic variables above automatically. Keep the scoped
+     dark surface's text utilities on the same palette. */
+  --color-brand-primary: rgb(var(--brand-primary));
+  --color-brand-secondary: rgb(var(--brand-secondary));
+  --color-brand-foreground: rgb(var(--brand-foreground));
+  --color-bg-primary: rgb(var(--bg-primary));
+  --color-bg-secondary: rgb(var(--bg-secondary));
+  --color-bg-base: rgb(var(--bg-base));
+  --color-surface: rgb(var(--surface));
+  --color-surface-hover: rgb(var(--surface-hover));
+  --color-surface-elevated: rgb(var(--surface-elevated));
+  --color-text-primary: rgb(var(--text-primary));
+  --color-text-secondary: rgb(var(--text-secondary));
+  --color-text-muted: rgb(var(--text-muted));
+  --color-text-tertiary: rgb(var(--text-tertiary));
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --border-base: rgba(255, 255, 255, 0.12);
+  --border-bright: rgba(255, 255, 255, 0.25);
+  --bg-base: rgb(var(--bg-primary));
+  --bg-sidebar: rgb(var(--bg-secondary));
+  --bg-surface: rgb(var(--surface));
+  --bg-elevated: rgb(var(--surface-elevated));
+  --overlay-subtle: rgba(255, 255, 255, 0.08);
+  --overlay-light: rgba(255, 255, 255, 0.1);
+  --overlay-medium: rgba(255, 255, 255, 0.2);
+  --overlay-strong: rgba(255, 255, 255, 0.3);
+  --overlay-heavy: rgba(255, 255, 255, 0.5);
+  --overlay-intense: rgba(255, 255, 255, 0.8);
+  --overlay-medium: rgba(0, 0, 0, 0.82);
+  --color-overlay-medium: var(--overlay-medium);
+  --border-overlay-subtle: rgba(255, 255, 255, 0.05);
+  --border-overlay-light: rgba(255, 255, 255, 0.1);
+  --border-overlay-medium: rgba(255, 255, 255, 0.2);
+  --border-overlay-strong: rgba(255, 255, 255, 0.3);
+  --ring-overlay-light: rgba(255, 255, 255, 0.1);
+  --ring-overlay-medium: rgba(255, 255, 255, 0.2);
+  --surface-highlight: rgba(255, 255, 255, 0.05);
+}
+
+/* ============================================================================
+   SAFE AREA — consistent notch/home-indicator padding across all components
+   ============================================================================ */
+
+:root {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+
+  /* Fixed bottom chrome — mobile nav + global music player */
+  --mobile-bottom-nav-height: 5rem;
+  /* The nav's real rendered height: it pads its own content for the home indicator,
+     so anything stacking on top of it (the music player) must clear the inset too.
+     Only equal to --mobile-bottom-nav-height where the inset is 0. */
+  --mobile-bottom-nav-total: calc(var(--mobile-bottom-nav-height) + var(--safe-area-bottom));
+  --music-player-height-expanded: 5rem;
+  --music-player-height-minimized: 3.5rem;
+  --music-player-height: var(--music-player-height-expanded);
+
+  /* Single-mint create flow — sticky offsets + fixed CTA bar */
+  --mint-sticky-bar-height: calc(3.25rem + var(--safe-area-bottom));
+  --mint-sticky-top-mobile: 6.5rem;
+  --mint-sticky-top-desktop: 9rem;
+  --mint-preview-max-height: calc(
+    100svh - var(--mint-sticky-top-desktop) - var(--mint-sticky-bar-height) - 5rem
+  );
+  --mint-progress-sheet-chrome: 0.5rem;
+  /* Full panel fits inside the visible viewport (safe areas + modal inset). */
+  --mint-progress-sheet-panel-height: calc(
+    100dvh - var(--safe-area-top) - var(--safe-area-bottom) - 2rem
+  );
+  --mint-progress-sheet-body-height: calc(
+    var(--mint-progress-sheet-panel-height) - var(--mint-progress-sheet-chrome)
+  );
+
+  /* Synced at runtime by MobileBottomChromeSync — fallbacks for SSR/first paint */
+  --mobile-bottom-chrome-height: calc(var(--mobile-bottom-nav-height) + var(--safe-area-bottom));
+  --music-player-bottom-offset: 0px;
+  --music-player-safe-pad: 0px;
+  --mobile-content-padding-bottom: calc(var(--mobile-bottom-chrome-height) + 1rem);
+
+  /* Scrollable modal body cap. Was a flat 80vh, which on iOS Safari resolves against the
+     LARGE viewport (URL bar retracted) and so could exceed what is actually on screen; it
+     also ignored the sibling header/footer, letting header + 80vh body + footer overflow a
+     short phone and push the footer CTAs below the fold. The reserve covers
+     modalStandard.header (px-6 py-5) + modalStandard.footer (px-6 py-5, min-h-12 buttons)
+     + the panel wrapper's p-4. The floor keeps the body usable in landscape. */
+  --modal-body-max-height: max(
+    12rem,
+    calc(100dvh - var(--safe-area-top) - var(--safe-area-bottom) - 11.5rem)
+  );
+
+  /* Viewport-constrained overlays (toasts, anchored popovers, sheets) */
+  --toast-max-width: calc(100vw - var(--safe-area-left) - var(--safe-area-right) - 1.5rem);
+  --popover-max-width: calc(100vw - var(--safe-area-left) - var(--safe-area-right) - 2rem);
+}
+
+@media (min-width: 640px) {
+  :root {
+    --mint-sticky-bar-height: calc(2.75rem + var(--safe-area-bottom));
+  }
+}
+
+/* Utility: add safe-area padding where needed */
+.pb-safe {
+  padding-bottom: calc(0.75rem + var(--safe-area-bottom));
+}
+
+.pt-safe {
+  padding-top: calc(0.5rem + var(--safe-area-top));
+}
+
+/* Global music player — sits above mobile bottom nav when offset is synced */
+.music-player-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--music-player-bottom-offset, 0px);
+}
+
+@media (max-width: 767px) {
+  .music-player-bar {
+    /* Nav owns safe-area when the player is stacked above it; only pad when flush to the floor */
+    padding-bottom: var(--music-player-safe-pad, 0px);
+  }
+}
+
+/* Dynamic main-content inset when music player is visible on mobile */
+.pb-mobile-chrome-with-player {
+  padding-bottom: calc(
+    var(--mobile-bottom-nav-height) + var(--music-player-height) + var(--safe-area-bottom)
+  );
+}
+
+@media (min-width: 768px) {
+  .pb-mobile-chrome-with-player {
+    padding-bottom: 3rem;
+  }
+}
+
+/* ============================================================================
+   PAGE INSET — responsive side breathing room
+   ============================================================================ */
+
+:root {
+  --page-inset: 1rem;
+} /* default → 16px */
+
+@media (min-width: 640px) {
+  :root {
+    --page-inset: 2rem;
+  }
+} /* sm  → 32px  */
+@media (min-width: 1024px) {
+  :root {
+    --page-inset: 3rem;
+  }
+} /* lg  → 48px  */
+@media (min-width: 1280px) {
+  :root {
+    --page-inset: 5rem;
+  }
+} /* xl  → 80px  */
+@media (min-width: 1536px) {
+  :root {
+    --page-inset: 6rem;
+  }
+} /* 2xl → 96px  */
+
+.px-page {
+  padding-left: var(--page-inset);
+  padding-right: var(--page-inset);
+}
+
+:root {
+  --font-main: 'Outfit', -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Z-index bridge variables for design-token migration.
+   * Mirrors the zIndex scale in @verus/shared/config/design-tokens.ts so
+   * Tailwind's arbitrary-value syntax `z-(--z-<name>)` resolves to the
+   * design-system value rather than a raw integer. */
+  --z-10: 10;
+  --z-20: 20;
+  --z-30: 30;
+  --z-40: 40;
+  --z-50: 50;
+  --z-100: 100;
+  --z-overlay: 100;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-fixed: 300;
+  --z-player-chrome: 301;
+  --z-modal-backdrop: 1000;
+  --z-modal: 1100;
+  --z-modal-top: 1200;
+  --z-popover: 2000;
+  --z-tooltip: 5000;
+  --z-system: 10000;
+}
+
+/* Keep this final so it wins over Tailwind's generated transition utilities.
+ * Late data hydration can otherwise start a color/card transition after the
+ * earlier reduced-motion rule has been parsed. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition: none !important;
+    transition-duration: 1ms !important;
+  }
+}

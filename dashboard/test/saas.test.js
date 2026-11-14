@@ -4,7 +4,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const testDbPath = path.join('/tmp', `sovpin-test-${Date.now()}.sqlite`);
+process.env.NODE_ENV = 'test';
 process.env.SOVPIN_DB_PATH = testDbPath;
+// The internal blocknotify endpoint requires the secret outside development;
+// exercise the secured path instead of the dev-mode loopback bypass.
+process.env.SOVPIN_INTERNAL_SECRET = 'saas-test-internal-secret';
 
 const { decodeUrlRefCmmValue } = require('../src/verus-storage');
 const config = require('../src/config');
@@ -304,12 +308,15 @@ test('5. Register CMM Auto-Pin Watcher against live NftIndex.vreal@ identity via
   watcherId = body.watcher.watcher_id;
 });
 
-test('5b2. POST /v1/internal/blocknotify (loopback) syncs watchers and records trigger + block hash', async () => {
+test('5b2. POST /v1/internal/blocknotify (internal secret) syncs watchers and records trigger + block hash', async () => {
   const { getDb } = require('../src/db');
   const probeHash = 'blocknotify-test-hash';
   const res = await fetch(
     `${baseUrl}/v1/internal/blocknotify?blockHeight=13908&blockHash=${probeHash}`,
-    { method: 'POST' }
+    {
+      method: 'POST',
+      headers: { 'x-sovpin-internal-secret': process.env.SOVPIN_INTERNAL_SECRET },
+    }
   );
   assert.equal(res.status, 200);
   const body = await res.json();

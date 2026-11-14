@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SovPin Dashboard</title>
+  <title>SovPin — Sovereign IPFS & VDXF Storage Engine for Verus Developers</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     .pulse-green { animation: pulse-green 2s infinite; }
@@ -16,151 +16,1220 @@
       0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
       50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
     }
+    pre::-webkit-scrollbar { height: 6px; width: 6px; }
+    pre::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
   </style>
 </head>
-<body class="bg-gray-950 text-gray-100 min-h-screen">
-  <div class="max-w-7xl mx-auto p-6">
-    <!-- Header -->
-    <div class="flex items-center justify-between mb-8">
-      <div>
-        <h1 class="text-3xl font-bold text-white">SovPin Dashboard</h1>
-        <p class="text-gray-400 text-sm mt-1">Sovereign IPFS Pinning & Gateway Service</p>
+<body class="bg-gray-950 text-gray-100 min-h-screen font-sans">
+  <!-- Top Bar -->
+  <header class="border-b border-gray-800 bg-gray-900/80 backdrop-blur sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center gap-4">
+        <div class="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center font-bold text-white text-lg shadow">
+          SP
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-xl font-bold text-white tracking-tight">SovPin</h1>
+            <span class="text-xs px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800 font-mono">Verus VDXF + IPFS</span>
+            <span class="text-xs px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 font-mono">UK Commercial SaaS (£ GBP + VRSC)</span>
+          </div>
+          <p class="text-xs text-gray-400 mt-0.5">Sovereign IPFS Pinning, VDXF DataDescriptor Engine &amp; ContentMultiMap Watcher for Verus Builders</p>
+        </div>
       </div>
+
       <div class="flex items-center gap-3">
-        <span id="lastUpdate" class="text-xs text-gray-500"></span>
-        <span id="healthBadge" class="px-3 py-1 rounded-full text-sm font-medium bg-gray-800 text-gray-400">Loading...</span>
-      </div>
-    </div>
-
-    <!-- Status Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-      <!-- Kubo -->
-      <div class="bg-gray-900 rounded-xl p-5 border border-gray-800">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider">Kubo Node</h2>
-          <span id="kuboDot" class="w-3 h-3 rounded-full bg-gray-600"></span>
+        <div id="verusHeaderPill" class="text-xs px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-300 font-mono">
+          Verus RPC: connecting...
         </div>
-        <p id="kuboStatus" class="text-2xl font-bold text-white">—</p>
-        <p id="kuboVersion" class="text-xs text-gray-500 mt-1">—</p>
-      </div>
-      <!-- Tailscale -->
-      <div class="bg-gray-900 rounded-xl p-5 border border-gray-800">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider">Tailscale</h2>
-          <span id="tsDot" class="w-3 h-3 rounded-full bg-gray-600"></span>
-        </div>
-        <p id="tsStatus" class="text-2xl font-bold text-white">—</p>
-        <p id="tsIp" class="text-xs text-gray-500 mt-1">—</p>
-      </div>
-      <!-- Cloudflare -->
-      <div class="bg-gray-900 rounded-xl p-5 border border-gray-800">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider">Cloudflare Tunnel</h2>
-          <span id="cfDot" class="w-3 h-3 rounded-full bg-gray-600"></span>
-        </div>
-        <p id="cfStatus" class="text-2xl font-bold text-white">—</p>
-        <p id="cfTarget" class="text-xs text-gray-500 mt-1">—</p>
-      </div>
-    </div>
-
-    <!-- Metrics Grid -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-      <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
-        <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Repo Size</p>
-        <p id="repoSize" class="text-xl font-bold text-white">—</p>
-      </div>
-      <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
-        <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Pinned CIDs</p>
-        <p id="pinnedCids" class="text-xl font-bold text-white">—</p>
-      </div>
-      <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
-        <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Swarm Peers</p>
-        <p id="swarmPeers" class="text-xl font-bold text-white">—</p>
-      </div>
-      <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
-        <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Num Objects</p>
-        <p id="numObjects" class="text-xl font-bold text-white">—</p>
-      </div>
-      <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
-        <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Bandwidth In</p>
-        <p id="bwIn" class="text-xl font-bold text-white">—</p>
-      </div>
-      <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
-        <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Bandwidth Out</p>
-        <p id="bwOut" class="text-xl font-bold text-white">—</p>
-      </div>
-      <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
-        <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Cache TTL</p>
-        <p id="cacheTtl" class="text-xl font-bold text-white">—</p>
-      </div>
-      <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
-        <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Rate Limit</p>
-        <p id="rateLimit" class="text-xl font-bold text-white">—</p>
-      </div>
-    </div>
-
-    <!-- Cloudflare Details -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-      <div class="bg-gray-900 rounded-xl p-5 border border-gray-800">
-        <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Cloudflare Tunnel</h2>
-        <div class="space-y-2 text-sm">
-          <div class="flex justify-between"><span class="text-gray-500">Version</span><span id="cfVersion" class="text-white">—</span></div>
-          <div class="flex justify-between"><span class="text-gray-500">Ingress Rules</span><span id="cfRules" class="text-white">—</span></div>
-          <div class="flex justify-between"><span class="text-gray-500">SovPin Target</span><span id="cfTargetFull" class="text-white font-mono text-xs">—</span></div>
-          <div class="flex justify-between"><span class="text-gray-500">SovPin Path</span><span id="cfPath" class="text-white font-mono text-xs">—</span></div>
-        </div>
-      </div>
-      <div class="bg-gray-900 rounded-xl p-5 border border-gray-800">
-        <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">Cloudflare Cache</h2>
-        <div class="space-y-2 text-sm">
-          <div class="flex justify-between"><span class="text-gray-500">Edge TTL</span><span id="cfEdgeTtl" class="text-white">—</span></div>
-          <div class="flex justify-between"><span class="text-gray-500">Browser TTL</span><span id="cfBrowserTtl" class="text-white">—</span></div>
-          <div class="flex justify-between"><span class="text-gray-500">Cache Enabled</span><span id="cfCacheEnabled" class="text-white">—</span></div>
-          <div class="flex justify-between"><span class="text-gray-500">Rate Limit</span><span id="cfRateLimit" class="text-white">—</span></div>
+        <span id="healthBadge" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-800 text-gray-400">Checking...</span>
+        <div id="authHeaderStatus" class="flex items-center gap-2">
+          <span class="text-xs text-gray-400">Not signed in</span>
         </div>
       </div>
     </div>
 
-    <!-- MacBook System -->
-    <div class="bg-gray-900 rounded-xl p-5 border border-gray-800 mb-6">
-      <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">MacBook System (192.168.86.110)</h2>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm font-mono">
-        <div><span class="text-gray-500">Uptime:</span> <span id="sysUptime" class="text-white">—</span></div>
-        <div><span class="text-gray-500">Memory:</span> <span id="sysMemory" class="text-white">—</span></div>
-        <div><span class="text-gray-500">Disk:</span> <span id="sysDisk" class="text-white">—</span></div>
-      </div>
+    <!-- Navigation Tabs -->
+    <div class="max-w-7xl mx-auto px-6 flex gap-1 overflow-x-auto border-t border-gray-800/60 pt-2">
+      <button data-tab="portal" onclick="switchTab('portal')" class="tab-btn px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 border-blue-500 text-white bg-gray-900">
+        1. VerusID Auth &amp; API Keys
+      </button>
+      <button data-tab="pinning" onclick="switchTab('pinning')" class="tab-btn px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 border-transparent text-gray-400 hover:text-gray-200">
+        2. Pin &amp; VDXF Studio
+      </button>
+      <button data-tab="watchers" onclick="switchTab('watchers')" class="tab-btn px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 border-transparent text-gray-400 hover:text-gray-200">
+        3. CMM On-Chain Watchers
+      </button>
+      <button data-tab="billing" onclick="switchTab('billing')" class="tab-btn px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 border-transparent text-gray-400 hover:text-gray-200">
+        4. UK Plans &amp; VerusPay Billing (£ / VRSC)
+      </button>
+      <button data-tab="compliance" onclick="switchTab('compliance')" class="tab-btn px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 border-transparent text-gray-400 hover:text-gray-200">
+        5. UK Legal &amp; SDK Docs
+      </button>
+      <button data-tab="ops" onclick="switchTab('ops')" class="tab-btn px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 border-transparent text-gray-400 hover:text-gray-200">
+        6. Node &amp; Tunnel Ops
+      </button>
     </div>
+  </header>
 
-    <!-- Footer -->
-    <div class="text-center text-xs text-gray-600 mt-8">
-      SovPin Dashboard — Auto-refreshes every 10s — <a href="https://ipfs.sovpin.com" class="text-blue-500 hover:underline">ipfs.sovpin.com</a>
-    </div>
-  </div>
+  <main class="max-w-7xl mx-auto p-6 space-y-6">
+    <!-- Global Alert Banner -->
+    <div id="globalNotice" class="hidden rounded-xl p-4 border text-sm"></div>
+
+    <!-- ======================================================================= -->
+    <!-- TAB 1: VERUSID AUTH & DEVELOPER API KEYS                                -->
+    <!-- ======================================================================= -->
+    <section id="tab-portal" class="tab-panel space-y-6">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- Left: VerusID Challenge-Response Login -->
+        <div class="lg:col-span-5 bg-gray-900 rounded-xl p-6 border border-gray-800 space-y-4">
+          <div class="flex items-center justify-between">
+            <h2 class="text-lg font-bold text-white">Sign In with VerusID</h2>
+            <span class="text-xs px-2.5 py-1 rounded bg-blue-950 text-blue-300 border border-blue-800 font-mono">Zero Passwords</span>
+          </div>
+          <p class="text-xs text-gray-400 leading-relaxed">
+            SovPin accounts are keyed directly to your canonical on-chain Verus <code class="text-blue-300">i-address</code>. If you revoke and recover your VerusID on-chain, your pins, quotas, and API keys stay yours.
+          </p>
+
+          <div class="space-y-3">
+            <label class="block text-xs font-medium text-gray-300 uppercase tracking-wider">Your VerusID or i-Address</label>
+            <div class="flex gap-2">
+              <input id="loginIdentityInput" type="text" value="vreal@" placeholder="e.g. vreal@ or mike@"
+                class="flex-1 bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white font-mono focus:outline-none focus:border-blue-500">
+              <button id="requestChallengeBtn" onclick="requestVerusChallenge()"
+                class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition">
+                Get Challenge
+              </button>
+            </div>
+          </div>
+
+          <!-- Challenge Signing Step -->
+          <div id="challengeBox" class="hidden space-y-3 pt-3 border-t border-gray-800">
+            <div class="bg-gray-950 rounded-lg p-3 border border-gray-800 space-y-1.5 text-xs font-mono">
+              <div class="flex justify-between"><span class="text-gray-500">Resolved ID:</span><span id="chFriendlyName" class="text-blue-300"></span></div>
+              <div class="flex justify-between"><span class="text-gray-500">Canonical i-Addr:</span><span id="chIAddress" class="text-emerald-300"></span></div>
+              <div class="flex justify-between"><span class="text-gray-500">Chain Height:</span><span id="chHeight" class="text-gray-300"></span></div>
+            </div>
+
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">1. Sign with Verus CLI (or click Instant Daemon Sign below):</label>
+              <pre id="chCliCommand" class="bg-gray-950 border border-gray-800 rounded-lg p-2.5 text-xs text-amber-300 font-mono overflow-x-auto"></pre>
+            </div>
+
+            <div class="flex gap-2">
+              <button id="signWithNodeBtn" onclick="signChallengeWithNode()"
+                class="w-full px-3 py-2 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium rounded-lg transition">
+                ⚡ Sign with Connected VRSCTEST Wallet &amp; Verify
+              </button>
+            </div>
+
+            <div class="space-y-2 pt-2">
+              <label class="block text-xs text-gray-400">Or paste Base64 Signature from Verus CLI / Verus Mobile:</label>
+              <div class="flex gap-2">
+                <input id="challengeSigInput" type="text" placeholder="AgVn... base64 signature"
+                  class="flex-1 bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white font-mono">
+                <button id="verifyChallengeBtn" onclick="verifyVerusChallenge()"
+                  class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg">
+                  Verify Signature
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- QR Sign-In via Verus Mobile (LoginConsent) -->
+          <div class="pt-3 border-t border-gray-800 space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-gray-300 uppercase tracking-wider">Sign In with Verus Mobile (QR)</span>
+              <span class="text-[10px] px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800 font-mono">LoginConsent</span>
+            </div>
+            <p class="text-[11px] text-gray-500 leading-relaxed">
+              Scan with the official Verus Mobile wallet to approve sign-in on your phone. No passwords, no desktop daemon needed.
+            </p>
+            <div class="flex gap-2">
+              <input id="qrVerusIdInput" type="text" placeholder="Optional: restrict to a VerusID (e.g. vreal@)"
+                class="flex-1 bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white font-mono">
+              <button id="showQrBtn" onclick="startQrLogin()"
+                class="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-medium rounded-lg transition">
+                Show QR Code
+              </button>
+            </div>
+
+            <div id="qrLoginBox" class="hidden space-y-3 pt-2">
+              <div class="flex flex-col items-center gap-3 bg-gray-950 rounded-lg p-4 border border-gray-800">
+                <img id="qrCodeImg" alt="Verus Mobile QR login" class="rounded-lg border border-gray-700 bg-white p-2" style="width:240px;height:240px;">
+                <div class="text-center space-y-1">
+                  <div id="qrStatusText" class="text-xs text-amber-300 font-medium">Waiting for Verus Mobile to approve…</div>
+                  <div class="text-[10px] text-gray-500">Open Verus Mobile → scan the QR → approve the sign-in request.</div>
+                </div>
+                <div class="w-full space-y-1">
+                  <label class="block text-[10px] text-gray-500">Or open this deep link directly:</label>
+                  <div class="flex gap-2">
+                    <input id="qrDeepLinkInput" type="text" readonly
+                      class="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-[10px] text-blue-300 font-mono">
+                    <button onclick="copyText(document.getElementById('qrDeepLinkInput').value)"
+                      class="px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 text-white text-[10px] rounded">Copy</button>
+                  </div>
+                </div>
+              </div>
+              <button onclick="cancelQrLogin()"
+                class="w-full px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white text-xs font-medium rounded-lg transition">
+                Cancel QR Sign-In
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="lg:col-span-7 bg-gray-900 rounded-xl p-6 border border-gray-800 space-y-5">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 class="text-lg font-bold text-white">Sovereign Developer Account &amp; API Keys</h2>
+              <p class="text-xs text-gray-400">Generate <code class="text-emerald-300">svp_live_...</code> Bearer tokens for your Verus dApp or backend</p>
+            </div>
+            <span id="activePlanBadge" class="px-3 py-1 rounded-full text-xs font-semibold bg-blue-950 text-blue-300 border border-blue-800">
+              Sign in to view plan
+            </span>
+          </div>
+
+          <!-- Account Quota Summary -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div class="bg-gray-950 rounded-lg p-3 border border-gray-800">
+              <p class="text-xs text-gray-500">VerusID Identity</p>
+              <p id="accFriendlyName" class="text-sm font-bold text-white font-mono truncate mt-1">—</p>
+            </div>
+            <div class="bg-gray-950 rounded-lg p-3 border border-gray-800">
+              <p class="text-xs text-gray-500">Pinned Storage</p>
+              <p id="accStorageUsed" class="text-sm font-bold text-white mt-1">0 B / 1 GB</p>
+            </div>
+            <div class="bg-gray-950 rounded-lg p-3 border border-gray-800">
+              <p class="text-xs text-gray-500">Active Pins</p>
+              <p id="accPinCount" class="text-sm font-bold text-white mt-1">0</p>
+            </div>
+            <div class="bg-gray-950 rounded-lg p-3 border border-gray-800">
+              <p class="text-xs text-gray-500">CMM Watchers</p>
+              <p id="accWatcherCount" class="text-sm font-bold text-white mt-1">0</p>
+            </div>
+          </div>
+
+          <!-- Create API Key -->
+          <div class="bg-gray-950 rounded-xl p-4 border border-gray-800 space-y-3">
+            <div class="text-xs font-semibold text-gray-300 uppercase tracking-wider">Create Scoped Developer API Key</div>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <input id="newKeyName" type="text" placeholder="Key name (e.g. VREAL Prod)" value="Verus dApp Production Key"
+                class="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white">
+              <select id="newKeyScopes" class="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white font-mono">
+                <option value="pin:read,pin:write,vdxf:build">pin:read, pin:write, vdxf:build (Full)</option>
+                <option value="pin:read,vdxf:build">pin:read, vdxf:build (Read-Only)</option>
+              </select>
+              <button id="createApiKeyBtn" onclick="createDeveloperApiKey()"
+                class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg transition">
+                + Generate API Key
+              </button>
+            </div>
+
+            <!-- Newly Created Secret Display -->
+            <div id="createdKeyReveal" class="hidden bg-emerald-950/60 border border-emerald-700 rounded-lg p-3 space-y-1">
+              <div class="text-xs font-semibold text-emerald-300">Copy your secret API key now (shown once):</div>
+              <div class="flex items-center justify-between gap-2">
+                <code id="createdKeyValue" class="text-xs font-mono text-white break-all"></code>
+                <button onclick="copyText(document.getElementById('createdKeyValue').textContent)"
+                  class="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white text-xs rounded">Copy</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Keys Table -->
+          <div>
+            <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Active API Keys</h3>
+            <div id="apiKeysList" class="space-y-2 text-xs text-gray-400">
+              Sign in with your VerusID to view and manage your API keys.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================================= -->
+    <!-- TAB 2: PIN & VDXF STUDIO (UPLOAD / PIN BY CID -> VERUS URLREF)          -->
+    <!-- ======================================================================= -->
+    <section id="tab-pinning" class="tab-panel hidden space-y-6">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- Upload or Pin by CID Form -->
+        <div class="lg:col-span-5 bg-gray-900 rounded-xl p-6 border border-gray-800 space-y-4">
+          <h2 class="text-lg font-bold text-white">Pin Content &amp; Generate Verus URLRef</h2>
+          <p class="text-xs text-gray-400">
+            Uploaded bytes are pinned to Kubo and represented using Verus's serialized <code class="text-blue-300">DataDescriptor(CrossChainDataRef(URLRef))</code> CMM value. The URLRef commits to the uploaded bytes' SHA-256 hash.
+          </p>
+
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">Filename / Label</label>
+              <input id="pinFilename" type="text" value="verus-nft-manifest.json"
+                class="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white font-mono">
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-xs text-gray-400 mb-1">VDXF Key URI</label>
+                <input id="pinVdxfUri" type="text" value="sovpin::storage.pin.descriptor"
+                  class="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white font-mono">
+              </div>
+              <div>
+                <label class="block text-xs text-gray-400 mb-1">MIME Type</label>
+                <input id="pinMimeType" type="text" value="application/json"
+                  class="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white font-mono">
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">Optional File Picker (or edit JSON / Text payload below)</label>
+              <input id="pinFileInput" type="file" onchange="handleFilePicked(event)"
+                class="w-full text-xs text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-gray-800 file:text-gray-200 hover:file:bg-gray-700">
+            </div>
+
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">Payload Content (Text / JSON)</label>
+              <textarea id="pinContentText" rows="5"
+                class="w-full bg-gray-950 border border-gray-700 rounded-lg p-3 text-xs text-white font-mono">{"app":"VREAL Sovereign Media","schema":"vrsc::nft.metadata.v1","title":"Sovereign Genesis Artifact","creator":"vreal.VRSCTEST@"}</textarea>
+            </div>
+
+            <button id="uploadPinBtn" onclick="uploadAndBuildVdxf()"
+              class="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-lg transition">
+              Pin to Kubo &amp; Build Verus URLRef
+            </button>
+          </div>
+        </div>
+
+        <!-- VDXF Output & Active Pins Explorer -->
+        <div class="lg:col-span-7 space-y-6">
+          <div class="bg-gray-900 rounded-xl p-6 border border-gray-800 space-y-4">
+            <div class="flex items-center justify-between">
+              <h2 class="text-lg font-bold text-white">Verus ContentMultiMap Output</h2>
+              <span id="vdxfCidBadge" class="text-xs font-mono px-2.5 py-1 rounded bg-gray-800 text-gray-300">No pin selected</span>
+            </div>
+
+            <div class="space-y-3">
+              <div>
+                <div class="flex justify-between items-center mb-1">
+                  <span class="text-xs text-gray-400">1. <code class="text-blue-300">updateidentity</code> ContentMultiMap Command (Live VDXF IDs):</span>
+                  <button onclick="copyText(document.getElementById('vdxfUpdateCmd').textContent)" class="text-xs text-blue-400 hover:underline">Copy Command</button>
+                </div>
+                <pre id="vdxfUpdateCmd" class="bg-gray-950 border border-gray-800 rounded-lg p-3 text-xs text-emerald-300 font-mono overflow-x-auto">Pin a file or click any pin below to inspect its updateidentity payload...</pre>
+              </div>
+
+              <div>
+                <div class="flex justify-between items-center mb-1">
+                  <span class="text-xs text-gray-400">2. <code class="text-amber-300">signdata</code> SHA-256 Content Hash Attestation:</span>
+                  <button onclick="copyText(document.getElementById('vdxfSignCmd').textContent)" class="text-xs text-blue-400 hover:underline">Copy Command</button>
+                </div>
+                <pre id="vdxfSignCmd" class="bg-gray-950 border border-gray-800 rounded-lg p-3 text-xs text-amber-300 font-mono overflow-x-auto">—</pre>
+              </div>
+            </div>
+          </div>
+
+          <!-- Pinned CIDs Table -->
+          <div class="bg-gray-900 rounded-xl p-6 border border-gray-800 space-y-3">
+            <div class="flex items-center justify-between">
+              <h3 class="text-sm font-bold text-white uppercase tracking-wider">Your Sovereign Pinned CIDs</h3>
+              <button onclick="loadAccountPins()" class="text-xs text-blue-400 hover:underline">Refresh Pins</button>
+            </div>
+            <div id="pinsTableContainer" class="space-y-2 text-xs text-gray-400">
+              Sign in to view your pinned CIDs.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================================= -->
+    <!-- TAB 3: CONTENTMULTIMAP (CMM) ON-CHAIN AUTO-PIN WATCHERS                 -->
+    <!-- ======================================================================= -->
+    <section id="tab-watchers" class="tab-panel hidden space-y-6">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div class="lg:col-span-5 bg-gray-900 rounded-xl p-6 border border-gray-800 space-y-4">
+          <div class="flex items-center justify-between">
+            <h2 class="text-lg font-bold text-white">Register CMM Auto-Pin Watcher</h2>
+            <span class="text-xs px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800 font-mono">getidentitycontent</span>
+          </div>
+          <p class="text-xs text-gray-400 leading-relaxed">
+            Point SovPin at any VerusID (such as your app's registry identity like <code class="text-blue-300">NftIndex.vreal@</code> or a user identity). SovPin queries <code class="text-emerald-300">getidentitycontent</code> on the live Verus daemon, extracts every IPFS CID inside its ContentMultiMap, and pins them automatically.
+          </p>
+
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">Target VerusID to Watch on Chain</label>
+              <input id="watcherTargetId" type="text" value="NftIndex.vreal@"
+                class="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white font-mono">
+            </div>
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">VDXF Namespace / Key URI</label>
+              <input id="watcherVdxfUri" type="text" value="sovpin::storage.pin.descriptor"
+                class="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white font-mono">
+            </div>
+            <button id="createWatcherBtn" onclick="createCmmWatcher()"
+              class="w-full py-2.5 bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold rounded-lg transition">
+              + Watch VerusID ContentMultiMap &amp; Sync Now
+            </button>
+          </div>
+
+          <!-- Standalone VDXF Key Calculator -->
+          <div class="pt-4 border-t border-gray-800 space-y-2">
+            <h3 class="text-xs font-semibold text-gray-300 uppercase tracking-wider">Live Daemon VDXF Key Resolver (<code class="text-blue-300">getvdxfid</code>)</h3>
+            <div class="flex gap-2">
+              <input id="vdxfResolveInput" type="text" value="vrsc::system.identity.content.datadirectory"
+                class="flex-1 bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white font-mono">
+              <button onclick="resolveVdxfUri()" class="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white text-xs rounded-lg">
+                Resolve
+              </button>
+            </div>
+            <pre id="vdxfResolveOutput" class="bg-gray-950 border border-gray-800 rounded-lg p-2.5 text-xs text-gray-300 font-mono overflow-x-auto">Click Resolve to query live VRSCTEST daemon getvdxfid...</pre>
+          </div>
+        </div>
+
+        <div class="lg:col-span-7 bg-gray-900 rounded-xl p-6 border border-gray-800 space-y-4">
+          <div class="flex items-center justify-between">
+            <h2 class="text-lg font-bold text-white">Active On-Chain ContentMultiMap Watchers</h2>
+            <button onclick="loadWatchers()" class="text-xs text-blue-400 hover:underline">Refresh</button>
+          </div>
+          <div id="watchersListContainer" class="space-y-3 text-xs text-gray-400">
+            Sign in to view and sync your on-chain CMM watchers.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================================= -->
+    <!-- TAB 4: UK COMMERCIAL PLANS & VERUSPAY / GBP BILLING                     -->
+    <!-- ======================================================================= -->
+    <section id="tab-billing" class="tab-panel hidden space-y-6">
+      <div class="bg-gray-900 rounded-xl p-6 border border-gray-800">
+        <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+          <div>
+            <h2 class="text-xl font-bold text-white">UK Commercial Plans — Priced in GBP (£) &amp; Settled via VerusPay (`VRSC`) or Stripe UK</h2>
+            <p class="text-xs text-gray-400 mt-1">
+              Operated by <strong>SovPin Technologies Ltd</strong> (England &amp; Wales). All invoices include a 20% UK VAT breakdown and record the HMRC spot GBP/VRSC exchange rate at timestamp of creation.
+            </p>
+          </div>
+          <div class="bg-gray-950 border border-gray-800 rounded-lg px-4 py-2 text-xs font-mono">
+            <span class="text-gray-400">Spot Reference:</span> <span class="text-emerald-400 font-bold">1 VRSC = £3.00 GBP</span>
+          </div>
+        </div>
+
+        <!-- 3 Pricing Tiers -->
+        <div id="plansGrid" class="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <!-- Populated dynamically from /v1/public/info -->
+        </div>
+      </div>
+
+      <!-- UK Business VAT Settings + Invoices List -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div class="lg:col-span-5 bg-gray-900 rounded-xl p-6 border border-gray-800 space-y-4">
+          <h3 class="text-base font-bold text-white">UK Company &amp; VAT Invoice Details</h3>
+          <p class="text-xs text-gray-400">Add your UK Ltd company name and GB VAT number to appear on your downloadable HMRC VAT invoices.</p>
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">Company / Studio Legal Name</label>
+              <input id="vatCompanyName" type="text" placeholder="e.g. VREAL Sovereign Labs Ltd"
+                class="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white">
+            </div>
+            <div>
+              <label class="block text-xs text-gray-400 mb-1">UK VAT Registration Number (Optional)</label>
+              <input id="vatNumberInput" type="text" placeholder="e.g. GB123456789"
+                class="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white font-mono">
+            </div>
+            <button onclick="saveBillingProfile()"
+              class="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white text-xs font-medium rounded-lg">
+              Save UK VAT Profile
+            </button>
+          </div>
+        </div>
+
+        <div class="lg:col-span-7 bg-gray-900 rounded-xl p-6 border border-gray-800 space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="text-base font-bold text-white">UK VAT &amp; VerusPay Invoices</h3>
+            <button onclick="loadInvoices()" class="text-xs text-blue-400 hover:underline">Refresh Invoices</button>
+          </div>
+          <div id="invoicesListContainer" class="space-y-3 text-xs text-gray-400">
+            Sign in and select a plan above to generate a UK VAT / VerusPay invoice.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================================= -->
+    <!-- TAB 5: UK LEGAL COMPLIANCE (ONLINE SAFETY ACT / GDPR) & SDK DOCS        -->
+    <!-- ======================================================================= -->
+    <section id="tab-compliance" class="tab-panel hidden space-y-6">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- Developer Quickstart SDK -->
+        <div class="lg:col-span-7 bg-gray-900 rounded-xl p-6 border border-gray-800 space-y-4">
+          <h2 class="text-lg font-bold text-white">Verus Developer Integration &amp; Pinning Service API</h2>
+          <p class="text-xs text-gray-400">
+            SovPin implements both the standard <strong>IPFS Pinning Service API</strong> (<code class="text-blue-300">/v1/pins</code>) and the Verus-native <strong>VDXF Upload API</strong> (<code class="text-emerald-300">/v1/pin/upload</code>).
+          </p>
+
+          <div class="space-y-3">
+            <div class="text-xs font-semibold text-gray-300">1. Upload a File or JSON &amp; Receive a Ready-to-Sign VDXF Descriptor:</div>
+            <pre class="bg-gray-950 border border-gray-800 rounded-lg p-3 text-xs text-blue-300 font-mono overflow-x-auto">curl -X POST https://dashboard.sovpin.com/v1/pin/upload \
+  -H "Authorization: Bearer svp_live_YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filename": "profile-cmm.json",
+    "vdxfUri": "sovpin::storage.pin.descriptor",
+    "contentJson": { "verusid": "vreal@", "avatar": "ipfs://..." }
+  }'</pre>
+
+            <div class="text-xs font-semibold text-gray-300">2. Standard IPFS Pinning Service Spec (`POST /v1/pins` &amp; `GET /v1/pins`):</div>
+            <pre class="bg-gray-950 border border-gray-800 rounded-lg p-3 text-xs text-emerald-300 font-mono overflow-x-auto">curl -X POST https://dashboard.sovpin.com/v1/pins \
+  -H "Authorization: Bearer svp_live_YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"cid": "QmdJN78YiEAzh8xQ59YMsMW635cXtr24RDSz6zuJr1NyFk", "name": "genesis-asset"}'</pre>
+          </div>
+        </div>
+
+        <!-- UK Online Safety Act & Notice-and-Takedown -->
+        <div class="lg:col-span-5 bg-gray-900 rounded-xl p-6 border border-gray-800 space-y-4">
+          <div class="flex items-center justify-between">
+            <h2 class="text-lg font-bold text-white">UK Statutory Compliance</h2>
+            <span class="text-xs px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">England &amp; Wales</span>
+          </div>
+          <ul id="complianceFrameworkList" class="space-y-2 text-xs text-gray-300 list-disc pl-4">
+            <li><strong>UK Online Safety Act 2023:</strong> Automated CID hash-blocking (`HTTP 451 Unavailable For Legal Reasons`) &amp; immediate Kubo unpinning on verified notice.</li>
+            <li><strong>UK GDPR &amp; Data Protection Act 2018:</strong> Pseudonymous VerusID (`i-address`) account model; Sapling `zs-` client-side encryption supported so SovPin never holds user decryption keys.</li>
+            <li><strong>HMRC Cryptoasset Accounting:</strong> Dual GBP (`£`) + `VRSC` invoicing with spot GBP rate recorded at receipt timestamp and 20% UK VAT breakdown.</li>
+          </ul>
+
+          <div class="pt-3 border-t border-gray-800 space-y-2">
+            <h3 class="text-xs font-semibold text-gray-300 uppercase tracking-wider">UK Notice &amp; Takedown / Block CID (`HTTP 451`)</h3>
+            <input id="takedownCidInput" type="text" placeholder="CID to block (e.g. Qm...)"
+              class="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white font-mono">
+            <input id="takedownReasonInput" type="text" placeholder="Statutory reason / notice reference"
+              class="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white">
+            <button onclick="submitTakedown()"
+              class="w-full py-2 bg-red-700 hover:bg-red-600 text-white text-xs font-semibold rounded-lg">
+              Block CID &amp; Unpin from Kubo (451 Legal Block)
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================================= -->
+    <!-- TAB 6: INFRASTRUCTURE & NODE OPS (EXISTING KUBO + CF + TAILSCALE)       -->
+    <!-- ======================================================================= -->
+    <section id="tab-ops" class="tab-panel hidden space-y-6">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-gray-900 rounded-xl p-5 border border-gray-800">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider">Kubo Node</h2>
+            <span id="kuboDot" class="w-3 h-3 rounded-full bg-gray-600"></span>
+          </div>
+          <p id="kuboStatus" class="text-2xl font-bold text-white">—</p>
+          <p id="kuboVersion" class="text-xs text-gray-500 mt-1">—</p>
+        </div>
+        <div class="bg-gray-900 rounded-xl p-5 border border-gray-800">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider">Tailscale Mesh</h2>
+            <span id="tsDot" class="w-3 h-3 rounded-full bg-gray-600"></span>
+          </div>
+          <p id="tsStatus" class="text-2xl font-bold text-white">—</p>
+          <p id="tsIp" class="text-xs text-gray-500 mt-1">—</p>
+        </div>
+        <div class="bg-gray-900 rounded-xl p-5 border border-gray-800">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider">Cloudflare Tunnel</h2>
+            <span id="cfDot" class="w-3 h-3 rounded-full bg-gray-600"></span>
+          </div>
+          <p id="cfStatus" class="text-2xl font-bold text-white">—</p>
+          <p id="cfTarget" class="text-xs text-gray-500 mt-1">—</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+          <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Repo Size</p>
+          <p id="repoSize" class="text-xl font-bold text-white">—</p>
+        </div>
+        <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+          <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Pinned CIDs</p>
+          <p id="pinnedCids" class="text-xl font-bold text-white">—</p>
+        </div>
+        <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+          <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Swarm Peers</p>
+          <p id="swarmPeers" class="text-xl font-bold text-white">—</p>
+        </div>
+        <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+          <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Num Objects</p>
+          <p id="numObjects" class="text-xl font-bold text-white">—</p>
+        </div>
+        <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+          <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Bandwidth In</p>
+          <p id="bwIn" class="text-xl font-bold text-white">—</p>
+        </div>
+        <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+          <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Bandwidth Out</p>
+          <p id="bwOut" class="text-xl font-bold text-white">—</p>
+        </div>
+        <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+          <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Cache TTL</p>
+          <p id="cacheTtl" class="text-xl font-bold text-white">—</p>
+        </div>
+        <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+          <p class="text-xs text-gray-500 uppercase tracking-wider mb-1">Rate Limit</p>
+          <p id="rateLimit" class="text-xl font-bold text-white">—</p>
+        </div>
+      </div>
+
+      <div class="bg-gray-900 rounded-xl p-5 border border-gray-800">
+        <h2 class="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">MacBook Storage Node System (192.168.86.110)</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm font-mono">
+          <div><span class="text-gray-500">Uptime:</span> <span id="sysUptime" class="text-white">—</span></div>
+          <div><span class="text-gray-500">Memory:</span> <span id="sysMemory" class="text-white">—</span></div>
+          <div><span class="text-gray-500">Disk:</span> <span id="sysDisk" class="text-white">—</span></div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="border-t border-gray-900 pt-6 pb-8 text-center text-xs text-gray-500 flex flex-wrap justify-between items-center gap-4">
+      <div>SovPin Technologies Ltd (United Kingdom) — Powered by Verus Protocol (`VerusID`, `VDXF`, `VerusPay`) &amp; Kubo IPFS</div>
+      <div class="flex items-center gap-4">
+        <span id="lastUpdate"></span>
+        <a href="https://ipfs.sovpin.com" target="_blank" class="text-blue-400 hover:underline">ipfs.sovpin.com</a>
+      </div>
+    </footer>
+  </main>
 
   <script>
-    function fmtBytes(b) {
-      if (b === 0) return '0 B';
-      const k = 1024;
-      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-      const i = Math.floor(Math.log(b) / Math.log(k));
-      return parseFloat((b / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    let sessionToken = localStorage.getItem('sovpin_session_token') || '';
+    let activeChallengeId = '';
+    let cachedPlans = [];
+    let cachedPins = [];
+    let pickedFile = null;
+
+    function showNotice(msg, type = 'info') {
+      const el = document.getElementById('globalNotice');
+      el.textContent = msg;
+      el.className = 'rounded-xl p-3.5 border text-xs font-medium ' + (
+        type === 'error'
+          ? 'bg-red-950/80 border-red-800 text-red-200'
+          : type === 'success'
+          ? 'bg-emerald-950/80 border-emerald-800 text-emerald-200'
+          : 'bg-blue-950/80 border-blue-800 text-blue-200'
+      );
+      el.classList.remove('hidden');
+      setTimeout(() => el.classList.add('hidden'), 7000);
     }
 
+    function copyText(text) {
+      navigator.clipboard?.writeText(text || '');
+      showNotice('Copied to clipboard', 'success');
+    }
+
+    function fmtBytes(b) {
+      const bytes = Number(b || 0);
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+      document.getElementById(`tab-${tabId}`)?.classList.remove('hidden');
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        if (btn.dataset.tab === tabId) {
+          btn.className = 'tab-btn px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 border-blue-500 text-white bg-gray-900';
+        } else {
+          btn.className = 'tab-btn px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 border-transparent text-gray-400 hover:text-gray-200';
+        }
+      });
+    }
+
+    async function apiCall(path, options = {}) {
+      const headers = Object.assign({}, options.headers || {});
+      if (!(options.body instanceof FormData)) headers['Content-Type'] = 'application/json';
+      if (sessionToken) {
+        headers['Authorization'] = `Bearer ${sessionToken}`;
+      }
+      const res = await fetch(path, Object.assign({}, options, { headers }));
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = data?.error?.details || data?.error || `Request failed (${res.status})`;
+        throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+      }
+      return data;
+    }
+
+    // ── Public Catalog & Plans ──────────────────────────────────────────────
+    async function loadPublicCatalog() {
+      try {
+        const info = await apiCall('/v1/public/info');
+        cachedPlans = info.plans || [];
+        const vPill = document.getElementById('verusHeaderPill');
+        if (info.verusDaemon?.online) {
+          vPill.textContent = `${info.verusDaemon.chain} #${info.verusDaemon.blocks} (${info.verusDaemon.version})`;
+          vPill.className = 'text-xs px-3 py-1.5 rounded-lg bg-emerald-950/70 border border-emerald-800 text-emerald-300 font-mono';
+        }
+        renderPlansGrid();
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function renderPlansGrid() {
+      const grid = document.getElementById('plansGrid');
+      if (!grid) return;
+      grid.innerHTML = cachedPlans.map(plan => {
+        const vatGbp = ((plan.priceGbpPence * 0.20) / 100).toFixed(2);
+        const totalGbp = ((plan.priceGbpPence * 1.20) / 100).toFixed(2);
+        return `
+          <div class="bg-gray-950 rounded-xl p-5 border border-gray-800 flex flex-col justify-between space-y-4">
+            <div>
+              <div class="flex items-center justify-between">
+                <h3 class="text-base font-bold text-white">${plan.name}</h3>
+                <span class="text-xs font-mono px-2 py-0.5 rounded bg-gray-900 text-blue-300 border border-gray-700">${plan.chainScope}</span>
+              </div>
+              <div class="mt-3 flex items-baseline gap-2">
+                <span class="text-3xl font-extrabold text-white">${plan.priceGbpDisplay}</span>
+                <span class="text-xs text-gray-400">/ month ${plan.priceGbpPence > 0 ? `(ex VAT • £${totalGbp} inc 20% UK VAT)` : ''}</span>
+              </div>
+              <p class="text-xs text-emerald-400 font-mono mt-1">
+                ${plan.priceVrsc > 0 ? `≈ ${plan.priceVrsc.toFixed(2)} VRSC / mo (+ £${vatGbp} VAT)` : 'Free for Verus Testnet builders'}
+              </p>
+              <ul class="mt-4 space-y-1.5 text-xs text-gray-300">
+                ${(plan.features || []).map(f => `<li class="flex items-center gap-2"><span class="text-emerald-400">✓</span> ${f}</li>`).join('')}
+              </ul>
+            </div>
+            <div class="pt-3 border-t border-gray-800 grid grid-cols-2 gap-2">
+              <button onclick="checkoutPlan('${plan.id}', 'veruspay')"
+                class="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg">
+                ${plan.priceGbpPence === 0 ? 'Activate Free Tier' : 'Pay with VerusPay'}
+              </button>
+              ${plan.priceGbpPence > 0 ? `
+              <button onclick="checkoutPlan('${plan.id}', 'stripe_gbp')"
+                class="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white text-xs font-semibold rounded-lg">
+                Pay £ GBP (Stripe UK)
+              </button>` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // ── 1. VerusID Login Flow ───────────────────────────────────────────────
+    async function requestVerusChallenge() {
+      try {
+        const identity = document.getElementById('loginIdentityInput').value.trim();
+        const res = await apiCall('/v1/auth/challenge', {
+          method: 'POST',
+          body: JSON.stringify({ identity }),
+        });
+        activeChallengeId = res.challengeId;
+        document.getElementById('chFriendlyName').textContent = res.friendlyName;
+        document.getElementById('chIAddress').textContent = res.iAddress;
+        document.getElementById('chHeight').textContent = `#${res.blockHeight}`;
+        document.getElementById('chCliCommand').textContent = res.cliCommand;
+        document.getElementById('challengeBox').classList.remove('hidden');
+        showNotice(`VerusID ${res.friendlyName} resolved on-chain (${res.iAddress})`, 'success');
+      } catch (err) {
+        showNotice(err.message, 'error');
+      }
+    }
+
+    async function signChallengeWithNode() {
+      try {
+        if (!activeChallengeId) return;
+        const signed = await apiCall('/v1/auth/sign-with-node', {
+          method: 'POST',
+          body: JSON.stringify({ challengeId: activeChallengeId }),
+        });
+        document.getElementById('challengeSigInput').value = signed.signature;
+        await verifyVerusChallenge();
+      } catch (err) {
+        showNotice(err.message, 'error');
+      }
+    }
+
+    async function verifyVerusChallenge() {
+      try {
+        const signature = document.getElementById('challengeSigInput').value.trim();
+        const res = await apiCall('/v1/auth/verify', {
+          method: 'POST',
+          body: JSON.stringify({ challengeId: activeChallengeId, signature }),
+        });
+        sessionToken = res.sessionToken;
+        localStorage.setItem('sovpin_session_token', sessionToken);
+        showNotice(`Authenticated as ${res.tenant.friendly_name} (${res.tenant.i_address}) via Verus daemon verifysignature!`, 'success');
+        await refreshAuthenticatedState();
+      } catch (err) {
+        showNotice(err.message, 'error');
+      }
+    }
+
+    let qrPollInterval = null;
+    let qrChallengeId = '';
+    let qrPollToken = '';
+
+    async function startQrLogin() {
+      try {
+        const verusId = document.getElementById('qrVerusIdInput').value.trim();
+        const body = verusId ? { verusId } : {};
+        const res = await apiCall('/v1/auth/login-consent/challenge', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+        qrChallengeId = res.challengeId;
+        qrPollToken = res.pollToken;
+        document.getElementById('qrCodeImg').src = res.qrCodeDataUrl || '';
+        document.getElementById('qrDeepLinkInput').value = res.deepLink || '';
+        document.getElementById('qrStatusText').textContent = 'Waiting for Verus Mobile to approve…';
+        document.getElementById('qrLoginBox').classList.remove('hidden');
+        showNotice(`QR challenge created for ${res.signingIdentity}. Scan with Verus Mobile.`, 'info');
+
+        if (qrPollInterval) clearInterval(qrPollInterval);
+        qrPollInterval = setInterval(async () => {
+          try {
+            const poll = await apiCall(`/v1/auth/login-consent/poll?challengeId=${encodeURIComponent(qrChallengeId)}&pollToken=${encodeURIComponent(qrPollToken)}`);
+            if (poll.status === 'verified') {
+              clearInterval(qrPollInterval);
+              qrPollInterval = null;
+              sessionToken = poll.sessionToken;
+              localStorage.setItem('sovpin_session_token', sessionToken);
+              document.getElementById('qrStatusText').textContent = `Verified as ${poll.userFriendlyName}!`;
+              showNotice(`Authenticated as ${poll.userFriendlyName} (${poll.userIAddress}) via Verus Mobile QR!`, 'success');
+              await refreshAuthenticatedState();
+              setTimeout(() => {
+                document.getElementById('qrLoginBox').classList.add('hidden');
+              }, 1500);
+            } else if (poll.status === 'expired') {
+              clearInterval(qrPollInterval);
+              qrPollInterval = null;
+              document.getElementById('qrStatusText').textContent = 'Challenge expired. Generate a new QR code.';
+              showNotice('QR challenge expired. Generate a new one.', 'error');
+            }
+          } catch (err) {
+            // keep polling; transient errors are OK
+          }
+        }, 2000);
+      } catch (err) {
+        showNotice(err.message, 'error');
+      }
+    }
+
+    function cancelQrLogin() {
+      if (qrPollInterval) {
+        clearInterval(qrPollInterval);
+        qrPollInterval = null;
+      }
+      document.getElementById('qrLoginBox').classList.add('hidden');
+      qrChallengeId = '';
+      qrPollToken = '';
+    }
+
+    function logoutSession() {
+      sessionToken = '';
+      localStorage.removeItem('sovpin_session_token');
+      document.getElementById('authHeaderStatus').innerHTML = `<span class="text-xs text-gray-400">Not signed in</span>`;
+      document.getElementById('accFriendlyName').textContent = '—';
+      showNotice('Signed out of SovPin session', 'info');
+    }
+
+    async function refreshAuthenticatedState() {
+      if (!sessionToken) return;
+      try {
+        const acc = await apiCall('/v1/account');
+        document.getElementById('authHeaderStatus').innerHTML = `
+          <span class="text-xs px-2.5 py-1 rounded bg-blue-950 text-blue-300 border border-blue-800 font-mono">${acc.tenant.friendly_name}</span>
+          <button onclick="logoutSession()" class="text-xs text-gray-400 hover:text-white">Sign Out</button>
+        `;
+        document.getElementById('activePlanBadge').textContent = `${acc.plan.name} (${acc.plan.priceGbpDisplay}/mo)`;
+        document.getElementById('accFriendlyName').textContent = `${acc.tenant.friendly_name} (${acc.tenant.i_address.slice(0, 10)}...)`;
+        document.getElementById('accStorageUsed').textContent = `${fmtBytes(acc.usage.usedBytes)} / ${fmtBytes(acc.plan.storageLimitBytes)}`;
+        document.getElementById('accPinCount').textContent = String(acc.usage.pinCount);
+        document.getElementById('accWatcherCount').textContent = `${acc.usage.activeWatchers} / ${acc.plan.maxCmmWatchers}`;
+
+        if (acc.tenant.uk_company_name) {
+          document.getElementById('vatCompanyName').value = acc.tenant.uk_company_name;
+        }
+        if (acc.tenant.uk_vat_number) {
+          document.getElementById('vatNumberInput').value = acc.tenant.uk_vat_number;
+        }
+
+        await Promise.all([
+          loadApiKeys(),
+          loadAccountPins(),
+          loadWatchers(),
+          loadInvoices(),
+        ]);
+      } catch {
+        sessionToken = '';
+        localStorage.removeItem('sovpin_session_token');
+      }
+    }
+
+    // ── 2. Scoped API Keys ──────────────────────────────────────────────────
+    async function loadApiKeys() {
+      const container = document.getElementById('apiKeysList');
+      try {
+        const res = await apiCall('/v1/keys');
+        if (!res.keys || res.keys.length === 0) {
+          container.innerHTML = `<div class="text-xs text-gray-500">No API keys created yet. Generate one above.</div>`;
+          return;
+        }
+        container.innerHTML = res.keys.map(k => `
+          <div class="bg-gray-950 border border-gray-800 rounded-lg p-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div class="font-semibold text-white">${k.name} <span class="font-mono text-emerald-400 ml-2">${k.key_prefix}</span></div>
+              <div class="text-gray-500 font-mono text-[11px] mt-0.5">Scopes: ${k.scopes} • Created: ${new Date(k.created_at).toLocaleTimeString()}</div>
+            </div>
+            <div>
+              ${k.revoked
+                ? `<span class="text-xs px-2 py-0.5 rounded bg-red-950 text-red-400">Revoked</span>`
+                : `<button onclick="revokeApiKey('${k.key_id}')" class="text-xs px-2.5 py-1 rounded bg-gray-800 hover:bg-red-900 text-gray-300 hover:text-white">Revoke</button>`}
+            </div>
+          </div>
+        `).join('');
+      } catch (err) {
+        container.textContent = err.message;
+      }
+    }
+
+    async function createDeveloperApiKey() {
+      try {
+        const name = document.getElementById('newKeyName').value.trim();
+        const scopes = document.getElementById('newKeyScopes').value;
+        const res = await apiCall('/v1/keys', {
+          method: 'POST',
+          body: JSON.stringify({ name, scopes }),
+        });
+        document.getElementById('createdKeyValue').textContent = res.apiKey;
+        document.getElementById('createdKeyReveal').classList.remove('hidden');
+        showNotice(`Created API key ${res.keyPrefix}`, 'success');
+        await refreshAuthenticatedState();
+      } catch (err) {
+        showNotice(err.message, 'error');
+      }
+    }
+
+    async function revokeApiKey(keyId) {
+      try {
+        await apiCall(`/v1/keys/${keyId}`, { method: 'DELETE' });
+        showNotice('API key revoked', 'info');
+        await refreshAuthenticatedState();
+      } catch (err) {
+        showNotice(err.message, 'error');
+      }
+    }
+
+    // ── 3. Pin & VDXF Studio ────────────────────────────────────────────────
+    function handleFilePicked(event) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      document.getElementById('pinFilename').value = file.name;
+      document.getElementById('pinMimeType').value = file.type || 'application/octet-stream';
+      pickedFile = file;
+      document.getElementById('pinContentText').value = `[Binary file attached: ${file.name} (${file.size} bytes)]`;
+    }
+
+    async function uploadAndBuildVdxf() {
+      try {
+        const filename = document.getElementById('pinFilename').value.trim();
+        const vdxfUri = document.getElementById('pinVdxfUri').value.trim();
+        const mimeType = document.getElementById('pinMimeType').value.trim();
+        const textVal = document.getElementById('pinContentText').value;
+
+        let res;
+        if (pickedFile) {
+          const form = new FormData();
+          form.append('file', pickedFile, filename || pickedFile.name);
+          res = await apiCall(`/v1/pin/upload/stream?vdxfUri=${encodeURIComponent(vdxfUri)}`, {
+            method: 'POST',
+            body: form,
+          });
+        } else {
+          const payload = { filename, vdxfUri, mimeType };
+          payload.contentText = textVal;
+          res = await apiCall('/v1/pin/upload', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+        }
+        pickedFile = null;
+        displayVdxfInspector(res);
+        showNotice(`Pinned CID ${res.pin.cid} and built a Verus URLRef CMM value.`, 'success');
+        await refreshAuthenticatedState();
+      } catch (err) {
+        showNotice(err.message, 'error');
+      }
+    }
+
+    function displayVdxfInspector(job) {
+      if (!job?.verus_vdxf) return;
+      const v = job.verus_vdxf;
+      document.getElementById('vdxfCidBadge').textContent = `CID: ${v.cid} (${fmtBytes(job.info?.size_bytes || 0)})`;
+      document.getElementById('vdxfUpdateCmd').textContent = v.cliCommand;
+      document.getElementById('vdxfSignCmd').textContent = v.signdataCommand;
+    }
+
+    async function loadAccountPins() {
+      const container = document.getElementById('pinsTableContainer');
+      try {
+        const res = await apiCall('/v1/pins');
+        cachedPins = res.results || [];
+        if (cachedPins.length === 0) {
+          container.innerHTML = `<div class="text-xs text-gray-500">No pins yet. Upload a file or JSON payload on the left.</div>`;
+          return;
+        }
+        if (cachedPins.length > 0 && document.getElementById('vdxfSignCmd').textContent === '—') {
+          displayVdxfInspector(cachedPins[0]);
+        }
+        container.innerHTML = cachedPins.map((job, idx) => `
+          <div class="bg-gray-950 border border-gray-800 rounded-lg p-3 flex flex-wrap items-center justify-between gap-2">
+            <div class="space-y-0.5">
+              <div class="flex items-center gap-2">
+                <span class="font-semibold text-white">${job.pin.name}</span>
+                <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-blue-950 text-blue-300">${job.info.vdxf_uri}</span>
+                <span class="text-[11px] text-gray-400">${fmtBytes(job.info.size_bytes)}</span>
+              </div>
+              <div class="font-mono text-[11px] text-emerald-400 break-all">
+                CID: <a href="${job.info.gateway_url}" target="_blank" class="hover:underline">${job.pin.cid}</a>
+              </div>
+              <div class="font-mono text-[10px] text-gray-500">SHA-256: ${job.info.sha256}</div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="displayVdxfInspector(cachedPins[${idx}])"
+                class="px-2.5 py-1 bg-gray-800 hover:bg-gray-700 text-xs text-blue-300 rounded">
+                Inspect VDXF
+              </button>
+              <button onclick="unpinRequest('${job.requestid}')"
+                class="px-2.5 py-1 bg-gray-800 hover:bg-red-900 text-xs text-gray-300 hover:text-white rounded">
+                Unpin
+              </button>
+            </div>
+          </div>
+        `).join('');
+      } catch (err) {
+        container.textContent = err.message;
+      }
+    }
+
+    async function unpinRequest(requestId) {
+      try {
+        const res = await apiCall(`/v1/pins/${requestId}`, { method: 'DELETE' });
+        showNotice(`Unpinned ${res.cid} (Remaining tenant refs: ${res.remainingTenantReferences})`, 'info');
+        await refreshAuthenticatedState();
+      } catch (err) {
+        showNotice(err.message, 'error');
+      }
+    }
+
+    // ── 4. CMM Watchers & Live VDXF Resolver ────────────────────────────────
+    async function resolveVdxfUri() {
+      try {
+        const vdxfUri = document.getElementById('vdxfResolveInput').value.trim();
+        const res = await apiCall('/v1/vdxf/resolve', {
+          method: 'POST',
+          body: JSON.stringify({ vdxfUri }),
+        });
+        document.getElementById('vdxfResolveOutput').textContent = JSON.stringify(res, null, 2);
+      } catch (err) {
+        showNotice(err.message, 'error');
+      }
+    }
+
+    async function createCmmWatcher() {
+      try {
+        const targetIdentity = document.getElementById('watcherTargetId').value.trim();
+        const vdxfUri = document.getElementById('watcherVdxfUri').value.trim();
+        const res = await apiCall('/v1/watchers', {
+          method: 'POST',
+          body: JSON.stringify({ targetIdentity, vdxfUri }),
+        });
+        showNotice(`Registered CMM Watcher for ${res.watcher.target_identity} (Height #${res.syncSummary.blockHeight})`, 'success');
+        await refreshAuthenticatedState();
+      } catch (err) {
+        showNotice(err.message, 'error');
+      }
+    }
+
+    async function syncCmmWatcher(watcherId) {
+      try {
+        const res = await apiCall(`/v1/watchers/${watcherId}/sync`, { method: 'POST' });
+        showNotice(`Synced ${res.watcher.target_identity} at block #${res.syncSummary.blockHeight}`, 'success');
+        await loadWatchers();
+      } catch (err) {
+        showNotice(err.message, 'error');
+      }
+    }
+
+    async function loadWatchers() {
+      const container = document.getElementById('watchersListContainer');
+      try {
+        const res = await apiCall('/v1/watchers');
+        const list = res.watchers || [];
+        if (list.length === 0) {
+          container.innerHTML = `<div class="text-xs text-gray-500">No CMM watchers active. Add a VerusID on the left to auto-pin its ContentMultiMap.</div>`;
+          return;
+        }
+        container.innerHTML = list.map(w => {
+          let summary = {};
+          try { summary = JSON.parse(w.last_result_json || '{}'); } catch {}
+          return `
+            <div class="bg-gray-950 border border-gray-800 rounded-lg p-4 space-y-2">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span class="font-bold text-white font-mono">${w.target_identity}</span>
+                  <span class="text-xs text-gray-500 font-mono ml-2">(${w.target_i_address})</span>
+                </div>
+                <button onclick="syncCmmWatcher('${w.watcher_id}')"
+                  class="px-3 py-1 bg-purple-700 hover:bg-purple-600 text-white text-xs rounded">
+                  Sync CMM Now
+                </button>
+              </div>
+              <div class="text-xs font-mono text-gray-400">
+                VDXF Filter: <span class="text-blue-300">${w.vdxf_uri}</span> (${w.vdxf_id})
+              </div>
+              <div class="text-xs text-gray-400">
+                Last Chain Sync: Block <span class="text-white font-mono">#${summary.blockHeight || '—'}</span> •
+                CMM Keys: <span class="text-white font-mono">${summary.totalCmmKeys ?? 0}</span> •
+                Discovered CIDs: <span class="text-emerald-400 font-mono">${w.pins_discovered}</span>
+              </div>
+            </div>
+          `;
+        }).join('');
+      } catch (err) {
+        container.textContent = err.message;
+      }
+    }
+
+    // ── 5. UK Commercial Billing & VerusPay Settlement ──────────────────────
+    async function saveBillingProfile() {
+      try {
+        const ukCompanyName = document.getElementById('vatCompanyName').value.trim();
+        const ukVatNumber = document.getElementById('vatNumberInput').value.trim();
+        await apiCall('/v1/account/billing-profile', {
+          method: 'PATCH',
+          body: JSON.stringify({ ukCompanyName, ukVatNumber, billingCountry: 'GB' }),
+        });
+        showNotice('Saved UK VAT billing profile', 'success');
+        await refreshAuthenticatedState();
+      } catch (err) {
+        showNotice(err.message, 'error');
+      }
+    }
+
+    async function checkoutPlan(planId, paymentRail) {
+      try {
+        if (!sessionToken) {
+          switchTab('portal');
+          showNotice('Sign in with your VerusID first to subscribe to a plan', 'info');
+          return;
+        }
+        const res = await apiCall('/v1/billing/checkout', {
+          method: 'POST',
+          body: JSON.stringify({ planId, paymentRail }),
+        });
+        if (res.upgraded) {
+          showNotice(`Switched plan to ${res.plan.name}`, 'success');
+        } else {
+          showNotice(`Generated UK VAT Invoice ${res.invoice.invoice_number} (${res.ukTaxSummary.totalIncVatGbp} inc 20% VAT / ${res.invoice.amount_vrsc} VRSC)`, 'success');
+        }
+        await refreshAuthenticatedState();
+      } catch (err) {
+        showNotice(err.message, 'error');
+      }
+    }
+
+    async function settleInvoice(invoiceId) {
+      try {
+        const res = await apiCall(`/v1/billing/invoices/${invoiceId}/settle`, {
+          method: 'POST',
+          body: JSON.stringify({}),
+        });
+        showNotice(`Invoice ${res.invoice.invoice_number} settled! Upgraded account to ${res.plan.name}.`, 'success');
+        await refreshAuthenticatedState();
+      } catch (err) {
+        showNotice(err.message, 'error');
+      }
+    }
+
+    async function loadInvoices() {
+      const container = document.getElementById('invoicesListContainer');
+      try {
+        const res = await apiCall('/v1/billing/invoices');
+        const list = res.invoices || [];
+        if (list.length === 0) {
+          container.innerHTML = `<div class="text-xs text-gray-500">No invoices yet. Choose Mainnet Indie (£12/mo) or Sovereign Studio (£49/mo) above.</div>`;
+          return;
+        }
+        container.innerHTML = list.map(inv => {
+          const sub = (inv.subtotal_gbp_pence / 100).toFixed(2);
+          const vat = (inv.vat_gbp_pence / 100).toFixed(2);
+          const tot = (inv.total_gbp_pence / 100).toFixed(2);
+          return `
+            <div class="bg-gray-950 border border-gray-800 rounded-lg p-4 space-y-2">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span class="font-bold text-white font-mono">${inv.invoice_number}</span>
+                  <span class="ml-2 text-xs px-2 py-0.5 rounded ${inv.status === 'paid' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-amber-950 text-amber-300 border border-amber-800'} uppercase font-mono">${inv.status}</span>
+                </div>
+                <div class="text-xs font-mono text-gray-300">
+                  Subtotal: £${sub} + 20% UK VAT (£${vat}) = <strong class="text-white">£${tot} GBP</strong>
+                </div>
+              </div>
+              <div class="text-xs font-mono text-emerald-400">
+                VerusPay Equivalent: ${inv.amount_vrsc} VRSC @ £${inv.vrsc_spot_gbp.toFixed(2)}/VRSC → ${inv.receiving_identity}
+              </div>
+              <div class="text-[11px] font-mono text-gray-500 break-all">
+                Memo: ${inv.veruspay_memo} ${inv.txid ? `• Settlement Ref: ${inv.txid}` : ''}
+              </div>
+              ${inv.status === 'open' ? `
+                <div class="pt-2 flex gap-2">
+                  <button onclick="settleInvoice('${inv.invoice_id}')"
+                    class="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold rounded">
+                    Confirm Payment &amp; Activate ${inv.plan_id.toUpperCase()} Tier
+                  </button>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('');
+      } catch (err) {
+        container.textContent = err.message;
+      }
+    }
+
+    // ── 6. UK Compliance Takedown ───────────────────────────────────────────
+    async function submitTakedown() {
+      try {
+        const cid = document.getElementById('takedownCidInput').value.trim();
+        const reason = document.getElementById('takedownReasonInput').value.trim();
+        const res = await apiCall('/v1/compliance/takedown', {
+          method: 'POST',
+          body: JSON.stringify({ cid, reason }),
+        });
+        showNotice(res.message, 'info');
+        await refreshAuthenticatedState();
+      } catch (err) {
+        showNotice(err.message, 'error');
+      }
+    }
+
+    // ── 7. Ops Metrics Poller ───────────────────────────────────────────────
     function setDot(id, online) {
       const el = document.getElementById(id);
-      el.className = 'w-3 h-3 rounded-full ' + (online ? 'bg-green-500 pulse-green' : 'bg-red-500 pulse-red');
+      if (el) el.className = 'w-3 h-3 rounded-full ' + (online ? 'bg-green-500 pulse-green' : 'bg-red-500 pulse-red');
     }
 
     async function fetchJSON(url) {
       try {
         const r = await fetch(url);
         return await r.json();
-      } catch (e) {
+      } catch {
         return null;
       }
     }
 
-    async function refresh() {
+    async function refreshOps() {
       const [kubo, cf, ts, health] = await Promise.all([
         fetchJSON('/api/kubo'),
         fetchJSON('/api/cloudflare'),
@@ -168,17 +1237,15 @@
         fetchJSON('/api/health'),
       ]);
 
-      // Health badge
       const badge = document.getElementById('healthBadge');
       if (health?.healthy) {
-        badge.textContent = 'Healthy';
-        badge.className = 'px-3 py-1 rounded-full text-sm font-medium bg-green-900 text-green-300';
+        badge.textContent = 'All Systems Healthy';
+        badge.className = 'px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-950 text-emerald-300 border border-emerald-800';
       } else {
         badge.textContent = 'Degraded';
-        badge.className = 'px-3 py-1 rounded-full text-sm font-medium bg-red-900 text-red-300';
+        badge.className = 'px-3 py-1.5 rounded-lg text-xs font-medium bg-red-950 text-red-300 border border-red-800';
       }
 
-      // Kubo
       if (kubo) {
         setDot('kuboDot', kubo.online);
         document.getElementById('kuboStatus').textContent = kubo.online ? 'Online' : 'Offline';
@@ -191,7 +1258,6 @@
         document.getElementById('bwOut').textContent = fmtBytes(kubo.bandwidth?.totalOut || 0);
       }
 
-      // Tailscale
       if (ts) {
         setDot('tsDot', ts.online && ts.macbook?.online);
         document.getElementById('tsStatus').textContent = (ts.online && ts.macbook?.online) ? 'Connected' : 'Disconnected';
@@ -201,29 +1267,21 @@
         document.getElementById('sysDisk').textContent = ts.system?.disk?.trim() || '—';
       }
 
-      // Cloudflare
       if (cf) {
         setDot('cfDot', cf.tunnel?.online);
         document.getElementById('cfStatus').textContent = cf.tunnel?.online ? 'Healthy' : 'Down';
         document.getElementById('cfTarget').textContent = cf.tunnel?.sovpinTarget || '—';
-        document.getElementById('cfVersion').textContent = cf.tunnel?.version || '—';
-        document.getElementById('cfRules').textContent = cf.tunnel?.totalRules || '—';
-        document.getElementById('cfTargetFull').textContent = cf.tunnel?.sovpinTarget || '—';
-        document.getElementById('cfPath').textContent = cf.tunnel?.sovpinPath || '—';
-        document.getElementById('cfEdgeTtl').textContent = cf.cache?.edgeTtl || '—';
-        document.getElementById('cfBrowserTtl').textContent = cf.cache?.browserTtl || '—';
-        document.getElementById('cfCacheEnabled').textContent = cf.cache?.cacheEnabled ? 'Yes' : 'No';
-        document.getElementById('cfRateLimit').textContent = cf.rateLimit?.configured ? '200 req/10s' : 'Not configured';
         document.getElementById('cacheTtl').textContent = cf.cache?.edgeTtl === 'respect_origin' ? 'Respect origin' : (cf.cache?.edgeTtl || '—');
-        document.getElementById('rateLimit').textContent = cf.rateLimit?.configured ? 'Active' : 'Inactive';
+        document.getElementById('rateLimit').textContent = cf.rateLimit?.configured ? 'Active (200/10s)' : 'Inactive';
       }
 
       document.getElementById('lastUpdate').textContent = 'Updated: ' + new Date().toLocaleTimeString();
     }
 
-    refresh();
-    setInterval(refresh, 10000);
+    loadPublicCatalog();
+    refreshAuthenticatedState();
+    refreshOps();
+    setInterval(refreshOps, 10000);
   </script>
 </body>
 </html>
-EOF

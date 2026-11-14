@@ -1,0 +1,365 @@
+/* ============================================================================
+   UTILITY STYLES
+   Video player, scrollbar, and other utility styles
+   ============================================================================ */
+
+html {
+  scroll-behavior: auto;
+}
+
+/* The walletless onboarding intro keeps the card centered when it fits and scrollable
+   when short viewports or longer onboarding states need more room. Overscroll containment
+   stops a spare-pixel swipe from rubber-banding the primary action on phones. */
+.get-started-viewport {
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding-bottom: calc(0.75rem + var(--safe-area-bottom));
+}
+
+@media (min-width: 640px) {
+  .get-started-viewport {
+    padding-bottom: calc(1rem + var(--safe-area-bottom));
+  }
+}
+
+/* Disable transitions temporarily during theme switch for instantaneous 60fps swaps */
+.disable-transitions,
+.disable-transitions * {
+  transition: none !important;
+}
+
+/* ============================================================
+   Native video player visibility
+   Improves contrast for browser-provided controls on cinematic media
+   ============================================================ */
+
+.watch-native-video {
+  color-scheme: dark;
+  background: rgb(var(--bg-primary));
+}
+
+.watch-native-video::-webkit-media-controls-panel {
+  background: linear-gradient(to top, rgba(5, 5, 8, 0.96), rgba(10, 10, 14, 0.88)) !important;
+}
+
+.watch-native-video::-webkit-media-controls-enclosure {
+  border-radius: 1rem;
+  overflow: hidden;
+}
+
+.watch-native-video::-webkit-media-controls-play-button,
+.watch-native-video::-webkit-media-controls-mute-button,
+.watch-native-video::-webkit-media-controls-fullscreen-button,
+.watch-native-video::-webkit-media-controls-overflow-button,
+.watch-native-video::-webkit-media-controls-toggle-closed-captions-button,
+.watch-native-video::-webkit-media-controls-picture-in-picture-button {
+  filter: brightness(1.35) contrast(1.2) drop-shadow(0 1px 4px rgba(0, 0, 0, 0.7));
+}
+
+.watch-native-video::-webkit-media-controls-current-time-display,
+.watch-native-video::-webkit-media-controls-time-remaining-display {
+  color: rgba(255, 255, 255, 0.95);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
+}
+
+.watch-native-video::-webkit-media-controls-timeline,
+.watch-native-video::-webkit-media-controls-volume-slider {
+  filter: brightness(1.15) contrast(1.1);
+}
+
+/* ============================================================
+   SCROLLBAR STYLING
+   Custom scrollbar for webkit browsers
+   ============================================================ */
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-overlay-medium) transparent;
+}
+
+/* Webkit scrollbar - Apple-grade overlay pill scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-overlay-medium);
+  border-radius: 9999px;
+  transition: background-color 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-overlay-strong);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ============================================================
+   FOCUS VISIBLE STYLING
+   Accessible focus ring. An outline already follows the element's
+   own border-radius, so the radius must not be touched here: an
+   unlayered rule would override every `rounded-*` utility, squaring
+   off a focused input inside an unrounded parent.
+   ============================================================ */
+
+/* In the base layer, so the focus tokens (focusRing.*) win over this default: an unlayered rule
+   here would beat every layered utility, including the danger colour and the inset offset. */
+@layer base {
+  *:focus-visible {
+    outline: 2px solid rgb(var(--brand-primary) / 0.65);
+    outline-offset: 2px;
+  }
+}
+
+/* Defer to component-tailored focus ring when already declared */
+[class*='focus-visible:ring']:focus-visible,
+[class*='focus-visible:outline-none']:focus-visible {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* ============================================================
+   BACKDROP FILTER POLYFILLS
+   Fallback styles for browsers without backdrop-filter
+   ============================================================ */
+
+@supports not (backdrop-filter: blur(1px)) {
+  .backdrop-blur-sm {
+    background: rgba(var(--bg-primary), 0.95);
+  }
+
+  .backdrop-blur-md {
+    background: rgba(var(--bg-primary), 0.9);
+  }
+
+  .backdrop-blur-lg {
+    background: rgba(var(--bg-primary), 0.85);
+  }
+
+  .backdrop-blur-xl {
+    background: rgba(var(--bg-primary), 0.8);
+  }
+
+  .backdrop-blur-2xl {
+    background: rgba(var(--bg-primary), 0.75);
+  }
+
+  .backdrop-blur-3xl {
+    background: rgba(var(--bg-primary), 0.7);
+  }
+}
+
+/* ============================================================
+   PRINT STYLES
+   Print-friendly styles
+   ============================================================ */
+
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+
+  .no-print,
+  .hidden-print {
+    display: none !important;
+  }
+
+  a {
+    text-decoration: underline;
+  }
+
+  a[href^='http']::after {
+    content: ' (' attr(href) ')';
+    font-size: 0.8em;
+    color: gray;
+  }
+}
+
+/* ============================================================
+   MOTION UTILITY CLASSES
+   Control animations via classes
+   ============================================================ */
+
+.motion-paused {
+  animation-play-state: paused;
+}
+
+.motion-running {
+  animation-play-state: running;
+}
+
+/* Disable animations */
+.motion-none {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* ============================================================
+   SCROLLBAR UTILITIES
+   Hide scrollbars while maintaining scroll functionality
+   ============================================================ */
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Profile shelf scrollbar visibility: hidden on mobile, visible on desktop */
+.profile-shelf-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.profile-shelf-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .profile-shelf-scrollbar {
+    -ms-overflow-style: auto;
+    scrollbar-width: thin;
+  }
+
+  .profile-shelf-scrollbar::-webkit-scrollbar {
+    display: block;
+    width: 6px;
+    height: 6px;
+  }
+}
+
+/* ============================================================
+   DESIGN TOKEN UTILITIES
+   Fixes for invalid dot-notation class strings in JSX
+   ============================================================ */
+
+/* Scrim gradients (purchase flow, hero carousel) */
+.scrim-purchase {
+  background: linear-gradient(to bottom right, rgba(0, 0, 0, 0.4), #000);
+}
+
+.scrim-hero {
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.4), transparent);
+}
+
+/* Radial vignette for media players */
+.scrim-vignette {
+  background: radial-gradient(circle at center, transparent 20%, rgba(0, 0, 0, 0.6) 100%);
+}
+
+/* Custom font-size utilities (mapped from @theme --font-size-* vars) */
+.text-micro {
+  font-size: var(--font-size-micro);
+}
+.text-xxs {
+  font-size: var(--font-size-xxs);
+}
+.text-tiny {
+  font-size: var(--font-size-tiny);
+}
+
+/* Pro Gradients (Premium Mandate) */
+.pro-gradient-brand {
+  background: linear-gradient(135deg, rgb(var(--brand-primary)), rgb(var(--brand-secondary)));
+}
+
+.pro-gradient-accent {
+  background: linear-gradient(135deg, rgb(var(--color-cyan)), rgb(var(--color-amber)));
+}
+
+.pro-gradient-dark {
+  background: linear-gradient(
+    180deg,
+    rgba(var(--surface-elevated), 0.8),
+    rgba(var(--surface), 0.95)
+  );
+}
+
+.pro-gradient-gold {
+  background: linear-gradient(
+    to right,
+    rgb(var(--color-gold)),
+    rgb(var(--color-amber)),
+    rgb(var(--color-amber-muted)),
+    rgb(var(--color-amber)),
+    rgb(var(--color-gold))
+  );
+}
+
+/* ============================================================
+   INTERACTIVE POLISH
+   Subtle micro-animations for premium feel
+   ============================================================ */
+
+/* Hover guard: only apply hover effects on devices that support hover (not mobile) */
+@media (hover: hover) {
+  .hover-lift {
+    @apply transition-transform duration-200 ease-out hover:-translate-y-0.5;
+  }
+}
+
+.active-shrink {
+  @apply transition-transform duration-150 ease-out active:scale-[0.98];
+}
+
+/* Always show element on touch devices (no hover capability) */
+@media (hover: none) {
+  .touch-show {
+    opacity: 1 !important;
+  }
+
+  /* Counterpart to .touch-show, for the "A swaps to B on hover" pattern (e.g. a track
+     number that becomes a play icon). Applying .touch-show to B alone would leave both
+     painted on top of each other on touch, since A never gets its hover cue to hide. */
+  .touch-hide {
+    opacity: 0 !important;
+  }
+}
+
+/* ============================================================
+   CINEMATIC HERO VIGNETTE
+   Focused reading darkroom over moving video backgrounds
+   ============================================================ */
+
+.cinema-vignette {
+  background: radial-gradient(
+    ellipse 85% 65% at 50% 38%,
+    rgba(9, 9, 11, 0.76) 0%,
+    rgba(9, 9, 11, 0.48) 55%,
+    rgba(9, 9, 11, 0.22) 100%
+  );
+}
+
+/* ============================================================
+   TYPOGRAPHIC CINEMA SHADOWS
+   Obsidian micro-scrim around typography over moving video
+   ============================================================ */
+
+.text-shadow-cinema {
+  text-shadow:
+    0 2px 12px rgba(0, 0, 0, 0.95),
+    0 0 28px rgba(0, 0, 0, 0.75);
+}
+
+.text-shadow-subtle {
+  text-shadow:
+    0 1px 8px rgba(0, 0, 0, 0.9),
+    0 0 16px rgba(0, 0, 0, 0.6);
+}

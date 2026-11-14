@@ -1,0 +1,339 @@
+/* ============================================================================
+   COMPONENT STYLES
+   Interactive states, typography, elevation, and component utilities
+   ============================================================================ */
+
+@layer base {
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  body {
+    background-color: rgb(var(--bg-primary));
+    color: rgb(var(--text-primary));
+    font-family: var(--font-main);
+    @apply overflow-x-hidden antialiased;
+    font-size: 0.8125rem;
+    letter-spacing: -0.01em;
+  }
+
+  /* Phone readability: 13px body copy is small at arm's length. Bump to 14px
+     below the md breakpoint. 767.98px mirrors maxWidthQuery(768) — the 0.02px
+     guard leaves no dead zone against Tailwind's min-width:48rem. Inputs already
+     sit at 16px on mobile to defeat iOS auto-zoom — this only lifts prose. */
+  @media (max-width: 767.98px) {
+    body {
+      font-size: 0.875rem;
+    }
+  }
+
+  ::selection {
+    background-color: rgb(var(--brand-primary));
+    color: rgb(var(--text-primary));
+  }
+
+  html {
+    scroll-behavior: auto;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-heading);
+    @apply text-text-primary font-bold tracking-tight transition-colors;
+  }
+
+  /* Native select menus inherit OS colors; align popup + options with theme tokens */
+  [data-theme='dark'] select,
+  [data-theme='midnight'] select {
+    color-scheme: dark;
+  }
+
+  select option {
+    background-color: rgb(var(--bg-secondary));
+    color: rgb(var(--text-primary));
+  }
+
+  /* Search inputs carry no native shadow. Focus is drawn by the field's focus token or by its
+     composite wrapper; an !important outline reset here would cancel that indicator. */
+  input[type='search'] {
+    box-shadow: none;
+  }
+}
+
+@layer components {
+  /* TYPOGRAPHY UTILITIES */
+  .text-technical {
+    @apply text-text-tertiary font-mono text-xs tracking-widest uppercase;
+  }
+
+  .text-body {
+    @apply text-xs leading-relaxed font-medium;
+  }
+
+  .text-title {
+    @apply text-sm leading-snug font-black tracking-tight uppercase;
+  }
+
+  .text-caption {
+    @apply text-text-secondary text-xs leading-tight font-medium;
+  }
+
+  /* ELEVATION UTILITIES */
+  .elevation-0 {
+    box-shadow: var(--elevation-0);
+  }
+
+  .elevation-1 {
+    box-shadow: var(--elevation-1);
+  }
+
+  .elevation-2 {
+    box-shadow: var(--elevation-2);
+  }
+
+  .elevation-3 {
+    box-shadow: var(--elevation-3);
+  }
+
+  .elevation-4 {
+    box-shadow: var(--elevation-4);
+  }
+
+  .elevation-5 {
+    box-shadow: var(--elevation-5);
+  }
+
+  .elevation-hover-1 {
+    box-shadow: var(--elevation-1);
+    transition: box-shadow var(--duration-fast) var(--ease-standard);
+  }
+
+  .elevation-hover-1:hover {
+    box-shadow: var(--elevation-2);
+  }
+
+  .elevation-hover-2 {
+    box-shadow: var(--elevation-2);
+    transition: box-shadow var(--duration-fast) var(--ease-standard);
+  }
+
+  .elevation-hover-2:hover {
+    box-shadow: var(--elevation-3);
+  }
+
+  .elevation-hover-3 {
+    box-shadow: var(--elevation-3);
+    transition: box-shadow var(--duration-fast) var(--ease-standard);
+  }
+
+  .elevation-hover-3:hover {
+    box-shadow: var(--elevation-4);
+  }
+
+  /* MOTION UTILITIES */
+  .motion-standard {
+    transition-timing-function: var(--ease-standard);
+    transition-duration: var(--duration-standard);
+  }
+
+  .motion-emphasized {
+    transition-timing-function: var(--ease-emphasized);
+    transition-duration: var(--duration-emphasized);
+  }
+
+  .motion-fast {
+    transition-timing-function: var(--ease-standard);
+    transition-duration: var(--duration-fast);
+  }
+
+  .motion-bounce {
+    transition-timing-function: var(--ease-bounce);
+    transition-duration: var(--duration-standard);
+  }
+
+  .card-performance {
+    content-visibility: auto;
+    contain-intrinsic-size: 280px 400px;
+  }
+
+  .glass-reduced {
+    @apply bg-overlay-heavy border-border-base border;
+  }
+
+  /* CINEMATIC MOTION */
+  .magnetic-action {
+    @apply cursor-pointer transition-all;
+    transition-timing-function: var(--ease-emphasized);
+    transition-duration: var(--duration-fast);
+  }
+
+  .magnetic-action:active {
+    transform: translateY(0) scale(0.98);
+    transition-duration: var(--duration-instant);
+  }
+
+  @media (hover: hover) {
+    .magnetic-action:hover {
+      transform: translateY(-2px) scale(1.02);
+      box-shadow: var(--elevation-3);
+    }
+  }
+
+  .cinematic-card {
+    @apply relative overflow-hidden;
+    transition:
+      transform var(--duration-standard) var(--ease-emphasized),
+      box-shadow var(--duration-standard) var(--ease-standard);
+  }
+
+  .cinematic-card:active {
+    transform: translateY(-4px) scale(1.01);
+  }
+
+  @media (hover: hover) {
+    .cinematic-card:hover {
+      transform: translateY(-8px) scale(1.015);
+      box-shadow: var(--elevation-4);
+    }
+  }
+
+  .tactical-press {
+    @apply relative;
+    transition: transform var(--duration-instant) var(--ease-standard);
+  }
+
+  .tactical-press:active {
+    transform: scale(0.96);
+  }
+
+  .tactical-press::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--overlay-subtle);
+    opacity: 0;
+    transition: opacity var(--duration-fast);
+    pointer-events: none;
+  }
+
+  .tactical-press:active::after {
+    opacity: 1;
+  }
+
+  /* PREMIUM GRADIENT PLACEHOLDER */
+  .pro-gradient-placeholder {
+    background: linear-gradient(
+      135deg,
+      rgba(var(--bg-secondary), 0.8) 0%,
+      rgba(var(--surface-elevated), 0.4) 50%,
+      rgba(var(--brand-primary), 0.05) 100%
+    );
+    position: relative;
+    overflow: hidden;
+  }
+}
+
+/* ============================================================
+   TOUGH UX — Mobile touch interaction improvements
+   ============================================================ */
+
+/* Remove tap highlight on mobile */
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Optimize touch behavior on interactive elements */
+button,
+a,
+[role='button'],
+input,
+select,
+textarea {
+  touch-action: manipulation;
+}
+
+/* Prevent overscroll on modals and sheets */
+.touch-overscroll-contain {
+  overscroll-behavior: contain;
+}
+
+/* Smooth, contained vertical touch scrolling inside sheets/modals */
+.touch-scroll-y {
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Prevent pull-to-refresh on swipeable regions */
+.touch-no-pull-refresh {
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+}
+
+/* Minimum touch target size for mobile */
+.touch-target-min {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Mobile tap highlight removal on cards */
+.touch-card {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* Custom Scrollbar - Liquid Style */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px; /* Thin industrial precision */
+  height: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--overlay-subtle); /* Minimalist footprint */
+  border-radius: 100px; /* Maximum smoothness */
+  border: 1px solid transparent; /* Essential for 'floating' effect */
+  background-clip: padding-box;
+  transition: background 0.3s ease;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--overlay-light); /* Subtle interaction highlight */
+}
+
+/* ============================================================
+   UI-01: OBSIDIAN GLASS ELEVATION SYSTEM
+   Standardized glassmorphism panels for Obsidian Dark Theme
+   ============================================================ */
+
+.glass-flat {
+  background-color: rgba(6, 6, 8, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.glass-elevation-1 {
+  backdrop-filter: blur(8px);
+  background-color: rgba(6, 6, 8, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.glass-elevation-2 {
+  backdrop-filter: blur(12px);
+  background-color: rgba(6, 6, 8, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
