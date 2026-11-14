@@ -1,0 +1,28 @@
+[Unit]
+Description=SovPin — Sovereign IPFS & VDXF Storage Engine for Verus Developers
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/demon/sovpin/dashboard
+ExecStart=/usr/bin/node /home/demon/sovpin/dashboard/server.js
+Restart=always
+RestartSec=3
+KillSignal=SIGTERM
+TimeoutStopSec=35
+Environment=NODE_ENV=production
+# Hardening
+User=demon
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/demon/sovpin/dashboard/data /home/demon/sovpin/dashboard/web/dist
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=default.target
