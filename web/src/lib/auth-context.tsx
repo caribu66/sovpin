@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Ctx } from './auth-state';
-import { api, setToken, getToken } from './api';
+import { api } from './api';
 import { queryClient, setUnauthorizedHandler } from './queryClient';
 
 export type Tenant = {
@@ -56,7 +56,7 @@ export type AuthCtx = {
   authError: string | null;
   activeApiKeySample: string;
   setActiveApiKeySample: (key: string) => void;
-  signInWithToken: (t: string) => Promise<void>;
+  signIn: () => Promise<void>;
   signOut: () => void;
   refresh: () => Promise<void>;
 };
@@ -77,21 +77,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refresh = useCallback(async () => {
-    if (!getToken()) {
-      setAccount(null);
-      setAuthError(null);
-      setLoading(false);
-      return;
-    }
+    // The session rides the HttpOnly cookie; always ask the server. A 401/403
+    // means signed out, anything else is transient and keeps local state.
     try {
       const acc = await api<Account>('/v1/account');
       setAccount(acc);
       setAuthError(null);
     } catch (e: any) {
-      // Only drop the session on auth failures; transient network/server
-      // errors keep the token so a retry can succeed without re-login.
       if (e?.status === 401 || e?.status === 403) {
-        setToken('');
         setAccount(null);
         setActiveApiKeySampleState('');
         // Drop cached tenant data so a later sign-in never reads it.
@@ -128,23 +121,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [tenantId]);
 
   const signOut = useCallback(() => {
-    if (getToken()) {
-      void api('/v1/auth/logout', { method: 'POST' }).catch(() => {});
-    }
-    setToken('');
+    // The server clears the HttpOnly cookie; drop local state regardless.
+    void api('/v1/auth/logout', { method: 'POST' }).catch(() => {});
     setAccount(null);
     setActiveApiKeySample('');
     queryClient.removeQueries();
   }, [setActiveApiKeySample]);
 
-  const signInWithToken = useCallback(
-    async (t: string) => {
-      setActiveApiKeySample('');
-      setToken(t);
-      await refresh();
-    },
-    [refresh, setActiveApiKeySample]
-  );
+  // Called after the API has set the session cookie (verify / QR poll).
+  const signIn = useCallback(async () => {
+    setActiveApiKeySample('');
+    await refresh();
+  }, [refresh, setActiveApiKeySample]);
 
   const value = useMemo(
     () => ({
@@ -153,11 +141,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       authError,
       activeApiKeySample,
       setActiveApiKeySample,
-      signInWithToken,
+      signIn,
       signOut,
       refresh,
     }),
-    [account, loading, authError, activeApiKeySample, setActiveApiKeySample, signInWithToken, signOut, refresh]
+    [account, loading, authError, activeApiKeySample, setActiveApiKeySample, signIn, signOut, refresh]
   );
 
   return (

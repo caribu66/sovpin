@@ -1,13 +1,9 @@
 const BASE = '';
 
-export function getToken(): string {
-  return localStorage.getItem('sovpin_session_token') || '';
-}
-export function setToken(t: string) {
-  if (t) localStorage.setItem('sovpin_session_token', t);
-  else localStorage.removeItem('sovpin_session_token');
-}
-
+// Session transport is the HttpOnly `svp_session` cookie (set by the API on
+// login, cleared on logout). No token material lives in JS or storage, so a
+// script injection can no longer exfiltrate the session. API keys (svp_live_)
+// still travel in the Authorization header via server-side callers only.
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -22,11 +18,9 @@ export async function api<T = any>(path: string, opts: RequestInit = {}): Promis
   if (!(opts.body instanceof FormData) && !(opts.body instanceof Blob)) {
     headers.set('Content-Type', 'application/json');
   }
-  const t = getToken();
-  if (t) headers.set('Authorization', `Bearer ${t}`);
   let res: Response;
   try {
-    res = await fetch(BASE + path, { ...opts, headers });
+    res = await fetch(BASE + path, { credentials: 'include', ...opts, headers });
   } catch (err: any) {
     throw new ApiError(0, `Network unreachable: ${err?.message || 'fetch failed'}`);
   }

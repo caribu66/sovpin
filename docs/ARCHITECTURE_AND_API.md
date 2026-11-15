@@ -81,8 +81,8 @@ Cloudflare enforces a **100 MB per-HTTP-request body limit** on Free/Pro zones (
 | `GET` | `/v1/public/info` | Public | Service catalog, UK company details, `gatewayUrl`, `maxSingleUploadBytes`, live Verus daemon status, and plan tiers (`builder`, `indie`, `studio`). |
 | `POST` | `/v1/auth/challenge` | Public | Issue a `verus signdata` challenge for a VerusID name (`vreal@`) or `i-address`. |
 | `POST` | `/v1/auth/sign-with-node` | Loopback only | Helper for local loopback (`127.0.0.1`) development/tests to sign a challenge via local `verusd`. Blocked on proxied public Cloudflare requests unless `ALLOW_PUBLIC_NODE_SIGN=true`. |
-| `POST` | `/v1/auth/verify` | Public | Verify a `signdata` signature via live `verifysignature`, upsert the tenant by `i-address`, and issue a `svps_...` session token. |
-| `POST` | `/v1/auth/logout` | Session or Key | Invalidate the caller's active `svps_...` session token in SQLite and record an `auth.logout` audit log. |
+| `POST` | `/v1/auth/verify` | Public | Verify a `signdata` signature via live `verifysignature`, upsert the tenant by `i-address`, and issue a `svps_...` session token (HttpOnly `svp_session` cookie for browsers, body token for CLI/API). |
+| `POST` | `/v1/auth/logout` | Session or Key | Invalidate the caller's active `svps_...` session token in SQLite, clear the `svp_session` cookie, and record an `auth.logout` audit log. |
 | `POST` | `/v1/auth/login-consent/challenge` | Public | Create a signed Verus Mobile `LoginConsentRequest` deep link + QR code (`sovpin.VRSCTEST@`). |
 | `POST` | `/v1/auth/login-consent/callback` | Public | Webhook callback receiving `LoginConsentResponse` from Verus Mobile and verifying it on-chain. |
 | `GET` | `/v1/auth/login-consent/poll` | Public | Poll a pending `LoginConsent` challenge (`challengeId` + `pollToken`) until verified. |

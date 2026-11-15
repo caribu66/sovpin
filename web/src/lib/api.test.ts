@@ -1,9 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { api, ApiError, getToken, setToken } from './api';
+import { api, ApiError } from './api';
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  setToken('');
 });
 
 function mockFetch(res: { ok: boolean; status: number; json: unknown }) {
@@ -54,18 +53,17 @@ describe('api()', () => {
     expect(err.message).toBe('Request failed (500)');
   });
 
-  it('sends the session token as a Bearer header', async () => {
-    setToken('tok123');
-    const fetchMock = vi.fn(async (_url: string, _init?: { headers?: Headers }) => ({
+  it('sends cookies and never an Authorization header', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: { headers?: Headers; credentials?: string }) => ({
       ok: true,
       status: 200,
       json: async () => ({}),
     }));
     vi.stubGlobal('fetch', fetchMock);
     await api('/v1/account');
-    const headers = fetchMock.mock.calls[0]?.[1]?.headers;
-    expect(headers?.get('Authorization')).toBe('Bearer tok123');
-    expect(getToken()).toBe('tok123');
+    const init = fetchMock.mock.calls[0]?.[1];
+    expect(init?.credentials).toBe('include');
+    expect(init?.headers?.get('Authorization')).toBeNull();
   });
 
   it('does not set Content-Type for FormData bodies', async () => {

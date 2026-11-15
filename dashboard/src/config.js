@@ -1,3 +1,4 @@
+const os = require('os');
 const path = require('path');
 
 const PLANS = {
@@ -81,10 +82,10 @@ const config = {
   tunnelId: process.env.CF_TUNNEL_ID || '990fae36-b92b-457b-af17-5737ed2d8a35',
   rulesetId: process.env.CF_RULESET_ID || '2e7849d6314246df8346142659b21066',
   zone: process.env.CF_ZONE || 'sovpin.com',
-  cfBin: process.env.CF_BIN || '/home/demon/.local/bin/cf',
+  cfBin: process.env.CF_BIN || path.join(os.homedir(), '.local/bin/cf'),
   tailscaleBin: process.env.TAILSCALE_BIN || 'tailscale',
   sshBin: process.env.SSH_BIN || 'ssh',
-  macbookSshKeyPath: process.env.MACBOOK_SSH_KEY_PATH || '/home/demon/.ssh/vreal_mirror_ed25519',
+  macbookSshKeyPath: process.env.MACBOOK_SSH_KEY_PATH || path.join(os.homedir(), '.ssh', 'vreal_mirror_ed25519'),
   macbookSshTarget: process.env.MACBOOK_SSH_TARGET || 'macbook@192.168.86.110',
   verusRpcHost: process.env.VERUS_RPC_HOST || '192.168.86.110',
   verusRpcPort: Number(process.env.VERUS_RPC_PORT || 25779),

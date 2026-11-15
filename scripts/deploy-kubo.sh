@@ -6,6 +6,10 @@ set -euo pipefail
 # Override via environment to align with the target host/deployment.
 MACBOOK="${MACBOOK:-macbook@192.168.86.110}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/vreal_mirror_ed25519}"
+# Fall back to the Chromebook host key name when the default is absent.
+if [[ ! -f "$SSH_KEY" && -f "$HOME/.ssh/macbook_sovpin" ]]; then
+  SSH_KEY="$HOME/.ssh/macbook_sovpin"
+fi
 TAILSCALE_IP="${TAILSCALE_IP:-100.66.85.86}"
 
 echo "=== SovPin Kubo Deploy ==="

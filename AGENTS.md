@@ -81,8 +81,8 @@ without those daemons. `docs-reality.test.js` is the only hermetic test file.
 ## 4. Backend conventions (`dashboard/`, plain Node, no TS)
 
 - Express 4, `server.js` wires `/v1` (saas-routes), `/healthz`, `/metrics`,
-  `/api/kubo|verus|cloudflare` status, static `web/dist`, legacy `/ops`.
-- Auth: session `Bearer` tokens and `svp_live_…` API keys; tenants are keyed by
+  `/api/kubo|verus|cloudflare` status, static `web/dist` (`/ops` removed).
+- Auth: HttpOnly cookie sessions and `svp_live_…` API keys; tenants are keyed by
   canonical Verus `i-address`, never email/password. Scope errors are 403 —
   the UI distinguishes them from 401 (see §5).
 - Upload limits: JSON `~35 MiB`, single stream `100 MiB`
@@ -104,10 +104,11 @@ without those daemons. `docs-reality.test.js` is the only hermetic test file.
   the session on 401 (provider clears the token → redirect) and surfaces 403
   scope messages. Invalidate, don't refetch manually (`useInvalidateLedger()`).
 - Auth provider owns 401/403: minted API key **secrets** stay in React memory
-  and are never persisted — **never `localStorage`**. The session bearer token
-  *is* persisted in `localStorage` by design (restores the session across
-  reloads without re-scanning a QR code); moving it to an HttpOnly cookie needs
-  a backend change and is out of frontend-only scope. Keep `useAuth` in
+  and are never persisted — **never `localStorage`**. The browser session rides
+  the HttpOnly `svp_session` cookie (`SameSite=Strict`, `Secure` on edge
+  traffic; `verify` and login-consent `poll` set it, `logout` clears it).
+  No token material lives in JS or storage. API keys (`svp_live_…`) still use
+  the `Authorization` header. Keep `useAuth` in
   `lib/useAuth.ts` and context in `lib/auth-state.ts` (fast-refresh rule).
 - Shared primitives live in `src/components/`: `Dialog` (focus, Escape, scroll
   lock — use for all modals), `Field` (labels, hints, inline `role="alert"`

@@ -90,8 +90,8 @@ const fs = require('node:fs');
 if (fs.existsSync(webDist)) {
   app.use(express.static(webDist));
 }
-// Keep the legacy ops dashboard available under /ops.
-app.use('/ops', express.static(path.join(__dirname, 'public')));
+// Legacy /ops dashboard removed (stored-XSS surface); the React console in
+// web/dist is the only UI. dashboard/public/ is deleted with it.
 
 // Mount Verus-Native Commercial SaaS API v1
 app.use('/v1', saasRoutes);
@@ -454,7 +454,14 @@ app.get('/api/health', async (req, res) => {
 
 if (fs.existsSync(webDist)) {
   // SPA fallback for client-side routing (registered after all API, healthz, and metrics routes).
-  app.get(/^\/(?!v1\/|api\/|healthz$|metrics$).*/, (_req, res, next) => {
+  // Missing hashed build assets under /assets/* must 404 instead of falling
+  // through to index.html: a 200 text/html fallback for an asset URL gets
+  // cached by the edge under that immutable URL and breaks lazy route chunks
+  // (browsers reject it under Strict MIME checking for module scripts).
+  app.get(/^\/(?!v1\/|api\/|healthz$|metrics$).*/, (req, res, next) => {
+    if (req.path.startsWith('/assets/')) {
+      return res.status(404).json({ error: 'ASSET_NOT_FOUND' });
+    }
     const indexFile = path.join(webDist, 'index.html');
     if (fs.existsSync(indexFile)) return res.sendFile(indexFile);
     next();

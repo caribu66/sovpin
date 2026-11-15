@@ -33,8 +33,8 @@ services:
       - "/srv/media/kubo-blocks:/data/ipfs/blocks"
     ports:
       # Bound to Tailscale IP + MacBook LAN — NOT 0.0.0.0
-      # (LAN bindings let the Chromebook reach Kubo; its Tailscale
-      # runs in userspace-networking mode so TCP over 100.x fails.)
+      # (LAN bindings let hosts without Tailscale reach Kubo; TUN-mode
+      # peers such as the Chromebook reach it over 100.x directly.)
       - "100.66.85.86:4001:4001"
       - "100.66.85.86:4001:4001/udp"
       - "100.66.85.86:5001:5001"

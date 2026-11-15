@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const { getDb } = require('./db');
 const { assertSafeOutboundUrl } = require('./outbound-url-safety');
+const { openSecret, needsMigration, sealSecret } = require('./secret-box');
 
 const MAX_RETRIES = 3;
 const RETRY_DELAYS_MS = [1000, 5000, 15000];
@@ -70,6 +71,23 @@ function dispatchWebhook(iAddress, event, data) {
   const payloadJson = JSON.stringify(payload);
 
   for (const wh of subscribed) {
+    // Fail closed when the sealed secret cannot be opened (e.g. after a
+    // data-key rotation): never sign with a wrong key, never log the secret.
+    let secret;
+    try {
+      const opened = openSecret(wh.secret);
+      secret = opened.secret;
+      if (needsMigration(wh.secret)) {
+        db.prepare('UPDATE webhooks SET secret = ? WHERE webhook_id = ?').run(
+          sealSecret(secret),
+          wh.webhook_id
+        );
+      }
+    } catch (err) {
+      console.error(`[webhook] skipping ${wh.webhook_id}: cannot open signing secret`);
+      continue;
+    }
+
     const perDeliveryId = `whd_${crypto.randomBytes(10).toString('hex')}`;
     try {
       db.prepare(
@@ -81,7 +99,7 @@ function dispatchWebhook(iAddress, event, data) {
     }
 
     // Fire-and-forget delivery with retries
-    attemptDelivery(perDeliveryId, wh, payloadJson, 0).catch(() => {});
+    attemptDelivery(perDeliveryId, { ...wh, secret }, payloadJson, 0).catch(() => {});
   }
 }
 

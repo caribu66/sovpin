@@ -5,6 +5,7 @@ const path = require('node:path');
 const Busboy = require('busboy');
 const { Transform, Readable } = require('node:stream');
 const config = require('./config');
+const { resolvePinDateRange } = require('./pin-date-range');
 const {
   getDb,
   hashToken,
@@ -58,6 +59,8 @@ const {
 
 const { dispatchWebhook } = require('./webhook-dispatch');
 const { assertSafeOutboundUrl, UnsafeOutboundUrlError } = require('./outbound-url-safety');
+const { getClientIp } = require('./client-ip');
+const { sealSecret } = require('./secret-box');
 
 const router = express.Router();
 
@@ -87,7 +90,7 @@ function pruneBuckets(map, windowMs, now) {
 }
 
 function enforceGlobalRateLimit(req, res, next) {
-  const key = req.ip || 'anonymous';
+  const key = getClientIp(req);
   const now = Date.now();
   const windowMs = 60_000;
   if (Math.random() < 0.01) pruneBuckets(globalRateBuckets, windowMs, now);
@@ -102,7 +105,7 @@ function enforceGlobalRateLimit(req, res, next) {
 }
 
 function enforceAuthRateLimit(req, res, next) {
-  const key = req.ip || 'anonymous';
+  const key = getClientIp(req);
   const now = Date.now();
   const windowMs = 60_000;
   const existing = (authRateBuckets.get(key) || []).filter((ts) => now - ts < windowMs);
@@ -115,8 +118,37 @@ function enforceAuthRateLimit(req, res, next) {
   return next();
 }
 
+const authIdentityBuckets = new Map();
+
+// Per-identity throttle for the public auth endpoints. The per-IP buckets
+// above cannot distinguish callers behind shared NAT (and the tunnel makes
+// every public IP look identical at the socket layer), so issuance and
+// verification are additionally keyed on the canonical identity. This stops
+// one actor from flooding a victim identity's login flow or brute-forcing a
+// single challenge. A CAPTCHA/Turnstile step remains a follow-up (it needs
+// provider credentials); this is the no-dependency layer.
+function enforceIdentityAuthLimit(req, res, scope, identity, maxPerMin) {
+  const id = String(identity || '').trim().toLowerCase();
+  if (!id) return true;
+  const key = `auth:${scope}:${id}`;
+  const now = Date.now();
+  const windowMs = 60_000;
+  if (Math.random() < 0.01) pruneBuckets(authIdentityBuckets, windowMs, now);
+  const existing = (authIdentityBuckets.get(key) || []).filter((ts) => now - ts < windowMs);
+  if (existing.length >= maxPerMin) {
+    res.setHeader('Retry-After', '60');
+    res.status(429).json({
+      error: { reason: 'RATE_LIMIT_EXCEEDED', details: 'Too many auth attempts for this identity' },
+    });
+    return false;
+  }
+  existing.push(now);
+  authIdentityBuckets.set(key, existing);
+  return true;
+}
+
 function enforceUploadRateLimit(req, res, next) {
-  const key = req.tenant?.i_address || req.ip || 'anonymous';
+  const key = req.tenant?.i_address || getClientIp(req);
   const now = Date.now();
   const windowMs = 60_000;
   const maxPerMin = Number(config.uploadRateLimitPerMin || 60);
@@ -171,12 +203,62 @@ function rejectExpensiveOp(res, op, acquisition) {
 }
 
 // ── Auth Middleware (Supports Session Token OR Scoped API Key svp_live_...) ──
+// Session cookie transport (HttpOnly). The browser console authenticates via
+// the `svp_session` cookie instead of a localStorage token, so an XSS flaw
+// can no longer exfiltrate the session. API keys still use the Authorization
+// header. SameSite=Strict gives CSRF protection without a token dance (the
+// API has no legitimate cross-site callers). The Secure flag follows the
+// browser-facing scheme: edge traffic carries Cloudflare headers, direct
+// loopback traffic (Vite dev on http) does not.
+const SESSION_COOKIE = 'svp_session';
+const SESSION_COOKIE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // matches sessions row expiry
+
+function isLoopbackPeer(req) {
+  const ip = req.socket?.remoteAddress || req.connection?.remoteAddress || '';
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+}
+
+function sessionCookieOptions(req) {
+  const viaEdge = Boolean(req.get('cf-connecting-ip')) || req.get('x-forwarded-proto') === 'https';
+  return {
+    httpOnly: true,
+    secure: viaEdge || !isLoopbackPeer(req),
+    sameSite: 'strict',
+    maxAge: SESSION_COOKIE_TTL_MS,
+    path: '/',
+  };
+}
+
+function setSessionCookie(req, res, token) {
+  res.cookie(SESSION_COOKIE, token, sessionCookieOptions(req));
+}
+
+function clearSessionCookie(res) {
+  res.clearCookie(SESSION_COOKIE, { path: '/' });
+}
+
+function readSessionCookie(req) {
+  const header = req.headers?.cookie || '';
+  for (const part of String(header).split(';')) {
+    const idx = part.indexOf('=');
+    if (idx <= 0) continue;
+    if (part.slice(0, idx).trim() !== SESSION_COOKIE) continue;
+    try {
+      return decodeURIComponent(part.slice(idx + 1).trim());
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+
 function authenticate(requiredScope = null) {
   return (req, res, next) => {
     const authHeader = req.get('authorization') || '';
     const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
     const sessionHeader = req.get('x-sovpin-session') || '';
-    const rawToken = bearer || sessionHeader;
+    // Header transports first (API keys, CLI, tests), then the HttpOnly cookie.
+    const rawToken = bearer || sessionHeader || readSessionCookie(req);
 
     if (!rawToken) {
       return res.status(401).json({
@@ -579,7 +661,11 @@ router.post('/auth/challenge', async (req, res) => {
       `Issued: ${issuedAt}`,
     ].join(' | ');
 
+    if (!enforceIdentityAuthLimit(req, res, 'issue', iAddress, 10)) return;
+
     const db = getDb();
+    // Lazy expiry sweep: challenge rows accumulate otherwise.
+    db.prepare('DELETE FROM auth_challenges WHERE expires_at < ?').run(Date.now());
     db.prepare(
       `INSERT INTO auth_challenges (challenge_id, identity_input, i_address, friendly_name, message, expires_at, used, created_at)
        VALUES (?, ?, ?, ?, ?, ?, 0, ?)`
@@ -668,6 +754,10 @@ router.post('/auth/verify', async (req, res) => {
       return res.status(400).json({ error: 'Challenge expired' });
     }
 
+    // Throttle verification attempts per identity (each attempt is a live
+    // verifysignature RPC against the daemon).
+    if (!enforceIdentityAuthLimit(req, res, 'verify', ch.i_address, 20)) return;
+
     const verified = await verifySignature({
       address: ch.i_address,
       message: ch.message,
@@ -709,9 +799,11 @@ router.post('/auth/verify', async (req, res) => {
       action: 'auth.verify',
       targetId: ch.challenge_id,
       details: { friendlyName: tenant.friendly_name },
-      ipAddress: req.ip,
+      ipAddress: getClientIp(req),
     });
 
+    // Browser transport: HttpOnly cookie. The body token stays for CLI/API use.
+    setSessionCookie(req, res, sessionToken);
     res.json({
       sessionToken,
       expiresAt,
@@ -736,8 +828,9 @@ router.post('/auth/logout', authenticate(), (req, res) => {
     action: 'auth.logout',
     targetId: req.tenant.i_address,
     details: {},
-    ipAddress: req.ip,
+    ipAddress: getClientIp(req),
   });
+  clearSessionCookie(res);
   res.json({ ok: true });
 });
 
@@ -798,7 +891,16 @@ router.post('/auth/login-consent/challenge', async (req, res) => {
       // qrcode optional; deepLink still usable.
     }
 
+    if (
+      requestedVerusId &&
+      !enforceIdentityAuthLimit(req, res, 'lc-issue', requestedVerusId, 10)
+    ) {
+      return;
+    }
+
     const db = getDb();
+    // Lazy expiry sweep for the short-lived QR sessions.
+    db.prepare(`DELETE FROM login_consent_sessions WHERE expires_at < ?`).run(Date.now());
     db.prepare(
       `INSERT INTO login_consent_sessions (challenge_id, poll_token, requested_verus_id, signing_id, status, expires_at, created_at)
        VALUES (?, ?, ?, ?, 'pending', ?, ?)`
@@ -935,11 +1037,16 @@ router.get('/auth/login-consent/poll', (req, res) => {
   if (!row || row.poll_token !== pollToken) {
     return res.status(404).json({ error: 'Session not found' });
   }
+  // Per-session poll throttle: the poll token is unguessable, but this caps
+  // token-guessing amplifiers at negligible cost to legit pollers (~20/min).
+  if (!enforceIdentityAuthLimit(req, res, 'lc-poll', challengeId, 120)) return;
   if (Date.now() > row.expires_at && row.status === 'pending') {
     db.prepare(`UPDATE login_consent_sessions SET status = 'expired' WHERE challenge_id = ?`).run(challengeId);
     row.status = 'expired';
   }
   if (row.status === 'verified') {
+    // Browser transport: HttpOnly cookie. The body token stays for compat.
+    if (row.session_token) setSessionCookie(req, res, row.session_token);
     return res.json({
       status: 'verified',
       sessionToken: row.session_token,
@@ -1014,7 +1121,7 @@ router.delete('/account', authenticate(), async (req, res) => {
     action: 'account.delete_gdpr',
     targetId: iAddress,
     details: { friendlyName, unpinnedFromKubo },
-    ipAddress: req.ip,
+    ipAddress: getClientIp(req),
   });
 
   db.prepare('DELETE FROM tenants WHERE i_address = ?').run(iAddress);
@@ -1115,7 +1222,7 @@ router.post('/keys', authenticate(), (req, res) => {
     action: 'key.create',
     targetId: keyId,
     details: { name, keyPrefix, scopes },
-    ipAddress: req.ip,
+    ipAddress: getClientIp(req),
   });
 
   res.status(201).json({
@@ -1139,7 +1246,7 @@ router.delete('/keys/cleanup-revoked', authenticate(), (req, res) => {
     action: 'key.cleanup_revoked',
     targetId: null,
     details: { deletedCount: result.changes },
-    ipAddress: req.ip,
+    ipAddress: getClientIp(req),
   });
   res.json({ ok: true, deletedCount: result.changes });
 });
@@ -1156,7 +1263,7 @@ router.delete('/keys/:keyId', authenticate(), (req, res) => {
     action: 'key.revoke',
     targetId: req.params.keyId,
     details: {},
-    ipAddress: req.ip,
+    ipAddress: getClientIp(req),
   });
   res.json({ ok: true, keyId: req.params.keyId });
 });
@@ -1208,7 +1315,7 @@ router.post('/webhooks', authenticate(), async (req, res) => {
   db.prepare(
     `INSERT INTO webhooks (webhook_id, i_address, url, secret, events, active, created_at)
      VALUES (?, ?, ?, ?, ?, 1, ?)`
-  ).run(webhookId, req.tenant.i_address, url, secret, events, now);
+  ).run(webhookId, req.tenant.i_address, url, sealSecret(secret), events, now);
 
   writeAuditLog({
     iAddress: req.tenant.i_address,
@@ -1216,7 +1323,7 @@ router.post('/webhooks', authenticate(), async (req, res) => {
     action: 'webhook.create',
     targetId: webhookId,
     details: { url, events },
-    ipAddress: req.ip,
+    ipAddress: getClientIp(req),
   });
 
   res.status(201).json({
@@ -1246,7 +1353,7 @@ router.delete('/webhooks/:webhookId', authenticate(), (req, res) => {
     action: 'webhook.delete',
     targetId: wh.webhook_id,
     details: { url: wh.url },
-    ipAddress: req.ip,
+    ipAddress: getClientIp(req),
   });
   res.json({ ok: true, webhookId: wh.webhook_id });
 });
@@ -1267,23 +1374,37 @@ router.get('/webhooks/:webhookId/deliveries', authenticate(), (req, res) => {
 // ── 5. Standard IPFS Pinning Service API + Verus VDXF Descriptor Engine ──────
 
 // GET /v1/pins (IPFS Pinning Service Spec compliant)
+// Supports ?status=, ?cid=, ?from= and ?to= (inclusive ISO 8601 / YYYY-MM-DD
+// bounds on created_at; see src/pin-date-range.js for bound semantics).
 router.get('/pins', authenticate('pin:read'), (req, res) => {
   const db = getDb();
   const statusFilter = req.query.status ? String(req.query.status) : 'pinned';
   const cidFilter = req.query.cid ? String(req.query.cid).trim() : null;
-
-  let rows;
-  if (cidFilter) {
-    rows = db
-      .prepare(
-        'SELECT * FROM pins WHERE i_address = ? AND status = ? AND cid = ? ORDER BY created_at DESC'
-      )
-      .all(req.tenant.i_address, statusFilter, cidFilter);
-  } else {
-    rows = db
-      .prepare('SELECT * FROM pins WHERE i_address = ? AND status = ? ORDER BY created_at DESC')
-      .all(req.tenant.i_address, statusFilter);
+  const { fromBound, toBound, error } = resolvePinDateRange(req.query);
+  if (error) {
+    return res.status(400).json({
+      error: { reason: 'INVALID_DATE_RANGE', details: error },
+    });
   }
+
+  const conditions = ['i_address = ?', 'status = ?'];
+  const params = [req.tenant.i_address, statusFilter];
+  if (cidFilter) {
+    conditions.push('cid = ?');
+    params.push(cidFilter);
+  }
+  if (fromBound) {
+    conditions.push('created_at >= ?');
+    params.push(fromBound);
+  }
+  if (toBound) {
+    conditions.push('created_at <= ?');
+    params.push(toBound);
+  }
+
+  const rows = db
+    .prepare(`SELECT * FROM pins WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC`)
+    .all(...params);
 
   res.json({
     count: rows.length,
@@ -1364,7 +1485,7 @@ router.post('/pins', authenticate('pin:write'), async (req, res) => {
       action: 'pin.create',
       targetId: createdRow.request_id,
       details: { cid, sizeBytes },
-      ipAddress: req.ip,
+      ipAddress: getClientIp(req),
     });
     dispatchWebhook(req.tenant.i_address, 'pin.created', {
       requestid: createdRow.request_id,
@@ -1493,7 +1614,7 @@ router.post(
           sizeBytes: uploaded.sizeBytes,
           sha256Hex: uploaded.sha256Hex,
         },
-        ipAddress: req.ip,
+        ipAddress: getClientIp(req),
       });
 
       dispatchWebhook(req.tenant.i_address, 'pin.created', {
@@ -1865,7 +1986,7 @@ router.post(
           sizeBytes: totalBytes,
           sha256Hex,
         },
-        ipAddress: req.ip,
+        ipAddress: getClientIp(req),
       });
 
       dispatchWebhook(req.tenant.i_address, 'pin.created', {
@@ -1999,7 +2120,7 @@ router.post('/pin/upload', authenticate('pin:write'), enforceUploadRateLimit, as
       action: 'pin.upload',
       targetId: createdRow.request_id,
       details: { cid, filename, sizeBytes, sha256Hex },
-      ipAddress: req.ip,
+      ipAddress: getClientIp(req),
     });
     dispatchWebhook(req.tenant.i_address, 'pin.created', {
       requestid: createdRow.request_id,
@@ -2250,7 +2371,7 @@ router.post('/pins/gc', authenticate('pin:write'), async (req, res) => {
       action: 'pin.gc_sweep',
       targetId: null,
       details: { candidatesChecked: candidates.length, unpinnedCids, repoGc, capped: candidates.length >= maxCandidates },
-      ipAddress: req.ip,
+      ipAddress: getClientIp(req),
     });
 
     res.json({
@@ -2296,7 +2417,7 @@ router.delete('/pins/:requestid', authenticate('pin:write'), async (req, res) =>
     action: 'pin.unpin',
     targetId: row.request_id,
     details: { cid: row.cid, remainingTenantReferences: remainingRefs, removedFromKubo },
-    ipAddress: req.ip,
+    ipAddress: getClientIp(req),
   });
 
   dispatchWebhook(req.tenant.i_address, 'pin.deleted', {
@@ -2735,7 +2856,7 @@ router.post('/watchers/:watcherId/repair', authenticate('pin:write'), async (req
       action: 'watcher.repair',
       targetId: watcher.watcher_id,
       details: { repairedCount: repaired.length, failedCount: failed.length },
-      ipAddress: req.ip,
+      ipAddress: getClientIp(req),
     });
 
     dispatchWebhook(req.tenant.i_address, 'watcher.repaired', {
@@ -2783,7 +2904,7 @@ router.delete('/watchers/:watcherId', authenticate(), (req, res) => {
     action: 'watcher.delete',
     targetId: watcher.watcher_id,
     details: { targetIdentity: watcher.target_identity },
-    ipAddress: req.ip,
+    ipAddress: getClientIp(req),
   });
   res.json({ ok: true, watcherId: watcher.watcher_id });
 });
@@ -3227,7 +3348,7 @@ router.post('/billing/invoices/:invoiceId/settle', authenticate(), async (req, r
         confirmations: verification?.confirmations ?? null,
         planId: invoice.plan_id,
       },
-      ipAddress: req.ip,
+      ipAddress: getClientIp(req),
     });
 
     const updatedInvoice = db
@@ -3311,7 +3432,7 @@ router.post('/compliance/takedown', authenticate(), async (req, res) => {
     action: 'compliance.takedown',
     targetId: cid,
     details: { reason },
-    ipAddress: req.ip,
+    ipAddress: getClientIp(req),
   });
 
   res.status(201).json({

@@ -187,6 +187,11 @@ function validateParsedUrl(urlString) {
   if (isBlockedHostname(host)) {
     throw new UnsafeOutboundUrlError('Webhook URL host is not allowed');
   }
+  // Single-label hostnames (intranet names, `https:///hook` collapsing to
+  // `hook`) resolve through local search domains — require a public FQDN.
+  if (!net.isIP(host) && !host.includes('.')) {
+    throw new UnsafeOutboundUrlError('Webhook URL must use a fully-qualified domain name');
+  }
 
   const ipKind = net.isIP(host);
   if (ipKind) {

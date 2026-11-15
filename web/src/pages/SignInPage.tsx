@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { QrCode, Terminal, RefreshCw, ArrowLeft } from 'lucide-react';
-import { api, setToken } from '../lib/api';
+import { api } from '../lib/api';
 import { useAuth } from '../lib/useAuth';
 import { CopyInline } from '../components/CopyInline';
 
 export default function SignInPage() {
-  const { account, signInWithToken, loading } = useAuth();
+  const { account, signIn, loading } = useAuth();
   const navigate = useNavigate();
 
   const [mode, setMode] = useState<'qr' | 'cli'>('qr');
@@ -52,8 +52,8 @@ export default function SignInPage() {
               clearInterval(pollRef.current);
               pollRef.current = null;
               setMsg(`Authenticated ${p.userFriendlyName}. Opening ledger...`);
-              setToken(p.sessionToken);
-              await signInWithToken(p.sessionToken);
+              // Session cookie was set by the poll response; just refresh.
+              await signIn();
               navigate('/dashboard', { replace: true });
             } else if (p.status === 'expired') {
               clearInterval(pollRef.current);
@@ -70,7 +70,7 @@ export default function SignInPage() {
         setQrLoading(false);
       }
     },
-    [identityFilter, navigate, signInWithToken]
+    [identityFilter, navigate, signIn]
   );
 
   // Mount-once challenge bootstrap: re-running on identityFilter keystrokes
@@ -119,15 +119,15 @@ export default function SignInPage() {
     if (!challenge) return;
     setErrMsg('');
     try {
-      const r = await api('/v1/auth/verify', {
+      await api('/v1/auth/verify', {
         method: 'POST',
         body: JSON.stringify({
           challengeId: challenge.challengeId,
           signature: sig ?? signature,
         }),
       });
-      setToken(r.sessionToken);
-      await signInWithToken(r.sessionToken);
+      // Session cookie was set by the verify response; just refresh.
+      await signIn();
       navigate('/dashboard', { replace: true });
     } catch (e: any) {
       setErrMsg(e.message);
