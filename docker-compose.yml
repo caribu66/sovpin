@@ -16,7 +16,8 @@
 
 services:
   kubo:
-    image: ipfs/kubo:latest
+    # Pinned to a known version for reproducible/supply-chain controlled deploys (update intentionally).
+    image: ipfs/kubo:v0.43.1
     container_name: kubo
     restart: unless-stopped
     cap_drop:

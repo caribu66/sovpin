@@ -4,25 +4,26 @@ After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/demon/sovpin/dashboard
-ExecStart=/usr/bin/node /home/demon/sovpin/dashboard/server.js
+# Align these paths/user to the deployed host (template: update before install).
+WorkingDirectory=%h/src/sovpin/dashboard
+ExecStart=/usr/bin/node %h/src/sovpin/dashboard/server.js
 Restart=always
 RestartSec=3
 KillSignal=SIGTERM
 TimeoutStopSec=35
 Environment=NODE_ENV=production
-# Hardening
-User=demon
+# Hardening (principle of least privilege)
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/demon/sovpin/dashboard/data /home/demon/sovpin/dashboard/web/dist
+ReadWritePaths=%h/src/sovpin/dashboard/data %h/src/sovpin/web/dist
 PrivateTmp=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
 LockPersonality=true
+CapabilityBoundingSet=
 
 [Install]
 WantedBy=default.target

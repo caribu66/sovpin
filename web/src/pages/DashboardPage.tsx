@@ -13,7 +13,7 @@ import {
   Search,
   Copy,
 } from 'lucide-react';
-import { api, uploadFileWithAutoChunking } from '../lib/api';
+import { api } from '../lib/api';
 import {
   usePins,
   useApiKeys,
@@ -77,6 +77,8 @@ export default function DashboardPage() {
   // Table Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [mimeFilter, setMimeFilter] = useState('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Slide-over Upload / Pin Drawer state
@@ -208,6 +210,17 @@ export default function DashboardPage() {
         if (!mime.startsWith(prefix)) return false;
       } else if (mime !== mimeFilter) {
         return false;
+      }
+    }
+    if (dateFrom || dateTo) {
+      const created = new Date(job.created).getTime();
+      if (dateFrom) {
+        const from = new Date(dateFrom).getTime();
+        if (!Number.isNaN(from) && created < from) return false;
+      }
+      if (dateTo) {
+        const to = new Date(dateTo).getTime();
+        if (!Number.isNaN(to) && created > to + 86400000 - 1) return false;
       }
     }
     if (!searchQuery.trim()) return true;
@@ -807,6 +820,23 @@ ipfs pin remote add --service=sovpin --name="${activeJob.pin.name}" ${activeCid}
                 <option value="application/json">application/json</option>
                 <option value="application/octet-stream">application/octet-stream</option>
               </select>
+
+              <label htmlFor="date-from" className="sr-only">Filter from date</label>
+              <input
+                id="date-from"
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="bg-[#111317] border border-[#22262E] rounded-sm px-2.5 py-1 text-xs font-mono text-[#9CA3AF] focus:outline-none focus:border-[#10B981]"
+              />
+              <label htmlFor="date-to" className="sr-only">Filter to date</label>
+              <input
+                id="date-to"
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="bg-[#111317] border border-[#22262E] rounded-sm px-2.5 py-1 text-xs font-mono text-[#9CA3AF] focus:outline-none focus:border-[#10B981]"
+              />
             </div>
 
             <div className="flex items-center gap-1.5">
@@ -1631,7 +1661,8 @@ ipfs pin remote add --service=sovpin --name="${activeJob.pin.name}" ${activeCid}
               <tr key={k.key_id} className="hover:bg-[#16191F] transition duration-75">
                 <td className="py-1.5 px-3 text-[#F3F4F6]">
                   <div className="flex items-center gap-1.5">
-                    {k.last_used_at && Date.now() - new Date(k.last_used_at).getTime() < 5 * 60 * 1000 && (
+                    {/* eslint-disable-next-line react-hooks/purity */}
+{k.last_used_at && Date.now() - new Date(k.last_used_at).getTime() < 5 * 60 * 1000 && (
                       <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] animate-pulse" title="Used in last 5 minutes" />
                     )}
                     {k.name}

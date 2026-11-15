@@ -6,3 +6,13 @@ node_modules/
 dashboard/data/
 dashboard/.env
 .env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.wif
+secrets/
+credentials/

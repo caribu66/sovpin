@@ -22,6 +22,7 @@ const {
   verifySignature,
   signData,
   getTransaction,
+  getRawTransaction,
 } = require('./verus-rpc');
 const { verusId, primitives } = require('./verusid-interface');
 const {
@@ -56,6 +57,7 @@ const {
 } = require('./verus-storage');
 
 const { dispatchWebhook } = require('./webhook-dispatch');
+const { assertSafeOutboundUrl, UnsafeOutboundUrlError } = require('./outbound-url-safety');
 
 const router = express.Router();
 
@@ -66,6 +68,15 @@ let inFlightUploads = 0;
 const tenantUploadBuckets = new Map();
 const globalRateBuckets = new Map();
 const authRateBuckets = new Map();
+const expensiveOpState = new Map(); // key -> { running, lastStartedAt, cooldownUntil }
+
+const EXPENSIVE_OP_LIMITS = {
+  importKubo: { maxConcurrent: 1, cooldownMs: 30_000, maxItemsPerRequest: 200 },
+  gc: { maxConcurrent: 1, cooldownMs: 30_000, maxCandidatesPerRequest: 500 },
+  watcherSync: { maxConcurrent: 1, cooldownMs: 10_000 },
+  watcherRepair: { maxConcurrent: 1, cooldownMs: 30_000, maxCidsPerRequest: 500 },
+  chunkedUploads: { maxOpenSessionsPerTenant: 3, maxPartsPerSession: 10000, maxTotalBytes: 10 * 1024 * 1024 * 1024 },
+};
 
 function pruneBuckets(map, windowMs, now) {
   for (const [key, arr] of map.entries()) {
@@ -122,6 +133,41 @@ function enforceUploadRateLimit(req, res, next) {
   existing.push(now);
   tenantUploadBuckets.set(key, existing);
   return next();
+}
+
+function acquireExpensiveOp(tenantKey, opName) {
+  const limits = EXPENSIVE_OP_LIMITS[opName] || { maxConcurrent: 1, cooldownMs: 0 };
+  const key = `${opName}:${tenantKey || 'anonymous'}`;
+  const now = Date.now();
+  const state = expensiveOpState.get(key) || { running: 0, cooldownUntil: 0 };
+  if (state.cooldownUntil && now < state.cooldownUntil) {
+    const retryAfterSec = Math.max(1, Math.ceil((state.cooldownUntil - now) / 1000));
+    return { ok: false, retryAfterSec, reason: 'COOLDOWN' };
+  }
+  if (state.running >= (limits.maxConcurrent || 1)) {
+    return { ok: false, retryAfterSec: 5, reason: 'CONCURRENT_LIMIT' };
+  }
+  state.running += 1;
+  expensiveOpState.set(key, state);
+  return {
+    ok: true,
+    release: () => {
+      const cur = expensiveOpState.get(key) || { running: 1, cooldownUntil: 0 };
+      cur.running = Math.max(0, cur.running - 1);
+      cur.cooldownUntil = Date.now() + (limits.cooldownMs || 0);
+      expensiveOpState.set(key, cur);
+    },
+  };
+}
+
+function rejectExpensiveOp(res, op, acquisition) {
+  if (acquisition.retryAfterSec) res.setHeader('Retry-After', String(acquisition.retryAfterSec));
+  return res.status(429).json({
+    error: {
+      reason: 'OPERATION_RATE_LIMITED',
+      details: `Expensive operation '${op}' is temporarily limited for this tenant (${acquisition.reason.toLowerCase()}). Try again later.`,
+    },
+  });
 }
 
 // ── Auth Middleware (Supports Session Token OR Scoped API Key svp_live_...) ──
@@ -774,8 +820,9 @@ router.post('/auth/login-consent/challenge', async (req, res) => {
       signingIdentity: config.sovpinSignerIdentity,
     });
   } catch (err) {
+    console.error('[auth] challenge failed:', err && err.message ? err.message : err);
     res.status(500).json({
-      error: { reason: 'CHALLENGE_FAILED', details: err.message || 'Failed to create login consent request' },
+      error: { reason: 'CHALLENGE_FAILED', details: 'Failed to create login consent request' },
     });
   }
 });
@@ -1139,26 +1186,19 @@ router.get('/webhooks', authenticate(), (req, res) => {
   res.json({ webhooks: hooks });
 });
 
-router.post('/webhooks', authenticate(), (req, res) => {
+router.post('/webhooks', authenticate(), async (req, res) => {
   const url = String(req.body?.url || '').trim();
-  if (!url || !/^https?:\/\//i.test(url)) {
+  if (!url) {
     return res.status(400).json({ error: 'A valid HTTP(S) webhook URL is required' });
   }
-  // SSRF guard: block loopback, private, link-local, and metadata endpoints.
-  let parsedUrl;
   try {
-    parsedUrl = new URL(url);
-  } catch {
+    // Unified SSRF protection: syntax/literal checks + DNS resolution (block private/local targets).
+    await assertSafeOutboundUrl(url, { resolveDns: true });
+  } catch (err) {
+    if (err instanceof UnsafeOutboundUrlError) {
+      return res.status(400).json({ error: 'Webhook URL must point to a public host' });
+    }
     return res.status(400).json({ error: 'Invalid webhook URL' });
-  }
-  const host = parsedUrl.hostname.toLowerCase();
-  const blockedHosts = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1', '169.254.169.254', 'metadata.google.internal']);
-  if (blockedHosts.has(host) || host.endsWith('.localhost') || host.endsWith('.internal')) {
-    return res.status(400).json({ error: 'Webhook URL must point to a public host' });
-  }
-  // Block RFC1918 / link-local / loopback IP literals.
-  if (/^(10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|169\\.254\\.|127\\.)/.test(host)) {
-    return res.status(400).json({ error: 'Webhook URL must point to a public host' });
   }
   const events = String(req.body?.events || 'pin.created,pin.deleted').trim();
   const secret = `whsec_${crypto.randomBytes(24).toString('hex')}`;
@@ -1338,8 +1378,9 @@ router.post('/pins', authenticate('pin:write'), async (req, res) => {
     });
     res.status(202).json(serializePinningServiceJob(createdRow));
   } catch (err) {
+    console.error('[pin] failed:', err && err.message ? err.message : err);
     res.status(500).json({
-      error: { reason: 'PIN_FAILED', details: err.message || 'Failed to pin CID on Kubo' },
+      error: { reason: 'PIN_FAILED', details: 'Failed to pin CID on Kubo' },
     });
   }
 });
@@ -1507,6 +1548,31 @@ router.post(
           ? req.body.meta
           : {};
 
+      if (totalSizeBytes !== null && (!Number.isFinite(totalSizeBytes) || totalSizeBytes <= 0)) {
+        return res.status(400).json({ error: 'totalSizeBytes must be a positive number when provided' });
+      }
+      if (totalSizeBytes !== null && totalSizeBytes > EXPENSIVE_OP_LIMITS.chunkedUploads.maxTotalBytes) {
+        return res.status(413).json({
+          error: {
+            reason: 'PAYLOAD_TOO_LARGE',
+            details: `Chunked upload exceeds maximum allowed size (${EXPENSIVE_OP_LIMITS.chunkedUploads.maxTotalBytes} bytes)`,
+          },
+        });
+      }
+
+      const db = getDb();
+      const openSessions = db
+        .prepare(`SELECT COUNT(*) AS count FROM chunked_uploads WHERE i_address = ? AND status = 'open' AND expires_at > ?`)
+        .get(req.tenant.i_address, Date.now());
+      if (Number(openSessions?.count || 0) >= EXPENSIVE_OP_LIMITS.chunkedUploads.maxOpenSessionsPerTenant) {
+        return res.status(429).json({
+          error: {
+            reason: 'TOO_MANY_OPEN_UPLOADS',
+            details: `Too many open chunked upload sessions (max ${EXPENSIVE_OP_LIMITS.chunkedUploads.maxOpenSessionsPerTenant} per tenant)`,
+          },
+        });
+      }
+
       const plan = config.PLANS[req.tenant.plan_id] || config.PLANS.builder;
       const usage = getTenantUsage(req.tenant.i_address);
       const remainingBytes = plan.storageLimitBytes - usage.usedBytes;
@@ -1537,7 +1603,6 @@ router.post(
       const stagingDir = getChunkedUploadDir(uploadId);
       fs.mkdirSync(stagingDir, { recursive: true });
 
-      const db = getDb();
       db.prepare(
         `INSERT INTO chunked_uploads (upload_id, i_address, filename, mime_type, total_size_bytes, vdxf_uri, meta_json, received_parts_json, status, expires_at, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, '{}', 'open', ?, ?)`
@@ -1561,10 +1626,11 @@ router.post(
         expiresAt,
       });
     } catch (error) {
+      console.error('[pin] chunked init failed:', error && error.message ? error.message : error);
       res.status(500).json({
         error: {
           reason: 'CHUNKED_INIT_FAILED',
-          details: error.message || 'Failed to initialize chunked upload',
+          details: 'Failed to initialize chunked upload',
         },
       });
     }
@@ -1579,8 +1645,9 @@ router.put('/pin/upload/chunked/:uploadId/part', authenticate('pin:write'), asyn
       return res.status(400).json({ error: 'Invalid uploadId' });
     }
     const partNumber = Number(req.query.partNumber);
-    if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > 10000) {
-      return res.status(400).json({ error: 'partNumber must be an integer between 1 and 10000' });
+    const maxParts = EXPENSIVE_OP_LIMITS.chunkedUploads.maxPartsPerSession;
+    if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > maxParts) {
+      return res.status(400).json({ error: `partNumber must be an integer between 1 and ${maxParts}` });
     }
 
     const db = getDb();
@@ -1592,6 +1659,10 @@ router.put('/pin/upload/chunked/:uploadId/part', authenticate('pin:write'), asyn
     }
     if (Date.now() > session.expires_at) {
       return res.status(410).json({ error: 'Chunked upload session expired' });
+    }
+    const existingParts = JSON.parse(session.received_parts_json || '{}');
+    if (!existingParts[String(partNumber)] && Object.keys(existingParts).length >= maxParts) {
+      return res.status(400).json({ error: `Chunked upload cannot exceed ${maxParts} parts` });
     }
 
     const stagingDir = getChunkedUploadDir(uploadId);
@@ -1681,6 +1752,9 @@ router.post(
       if (partNumbers.length === 0) {
         return res.status(400).json({ error: 'No parts uploaded for this session' });
       }
+      if (partNumbers.length > EXPENSIVE_OP_LIMITS.chunkedUploads.maxPartsPerSession) {
+        return res.status(400).json({ error: `Chunked upload exceeds maximum part count (${EXPENSIVE_OP_LIMITS.chunkedUploads.maxPartsPerSession})` });
+      }
       for (let i = 0; i < partNumbers.length; i++) {
         if (partNumbers[i] !== i + 1) {
           return res.status(400).json({
@@ -1693,6 +1767,14 @@ router.post(
         (acc, num) => acc + Number(partsMap[String(num)]?.sizeBytes || 0),
         0
       );
+      if (totalBytes > EXPENSIVE_OP_LIMITS.chunkedUploads.maxTotalBytes) {
+        return res.status(413).json({
+          error: {
+            reason: 'PAYLOAD_TOO_LARGE',
+            details: `Assembled upload exceeds maximum allowed size (${EXPENSIVE_OP_LIMITS.chunkedUploads.maxTotalBytes} bytes)`,
+          },
+        });
+      }
       if (session.total_size_bytes !== null && totalBytes !== Number(session.total_size_bytes)) {
         return res.status(400).json({
           error: `Assembled size (${totalBytes} bytes) does not match declared totalSizeBytes (${session.total_size_bytes} bytes)`,
@@ -1932,15 +2014,23 @@ router.post('/pin/upload', authenticate('pin:write'), enforceUploadRateLimit, as
     });
     res.status(201).json(serializePinningServiceJob(createdRow));
   } catch (err) {
+    console.error('[pin] upload failed:', err && err.message ? err.message : err);
     res.status(500).json({
-      error: { reason: 'UPLOAD_FAILED', details: err.message || 'Upload to Kubo failed' },
+      error: { reason: 'UPLOAD_FAILED', details: 'Upload to Kubo failed' },
     });
   }
 });
 
 // POST /v1/pins/import-kubo — Sync existing recursive pins from Kubo into tenant ledger
 router.post('/pins/import-kubo', authenticate('pin:write'), async (req, res) => {
+  const op = acquireExpensiveOp(req.tenant.i_address, 'importKubo');
+  if (!op.ok) return rejectExpensiveOp(res, 'import-kubo', op);
   try {
+    const limit = Math.min(
+      Math.max(Number(req.query.limit) || EXPENSIVE_OP_LIMITS.importKubo.maxItemsPerRequest, 1),
+      EXPENSIVE_OP_LIMITS.importKubo.maxItemsPerRequest
+    );
+    const offset = Math.max(Number(req.query.offset) || 0, 0);
     const pinRes = await fetch(`${config.kuboRpcUrl}/api/v0/pin/ls?type=recursive`, {
       method: 'POST',
       signal: AbortSignal.timeout(15000),
@@ -1949,7 +2039,8 @@ router.post('/pins/import-kubo', authenticate('pin:write'), async (req, res) => 
       return res.status(502).json({ error: 'Failed to query Kubo pin/ls' });
     }
     const pinData = await pinRes.json();
-    const cids = Object.keys(pinData.Keys || {});
+    const allCids = Object.keys(pinData.Keys || {});
+    const cids = allCids.slice(offset, offset + limit);
     const vdxfUri = 'sovpin::storage.pin.descriptor';
     const vdxfId = (await getVdxfId(vdxfUri))?.vdxfid;
     if (!vdxfId) throw new Error(`Verus daemon did not resolve VDXF URI: ${vdxfUri}`);
@@ -2014,10 +2105,21 @@ router.post('/pins/import-kubo', authenticate('pin:write'), async (req, res) => 
       imported++;
     }
 
-    res.json({ ok: true, imported, skipped, totalKuboPins: cids.length });
+    res.json({
+      ok: true,
+      imported,
+      skipped,
+      processed: cids.length,
+      totalKuboPins: allCids.length,
+      limit,
+      offset,
+      hasMore: offset + cids.length < allCids.length,
+    });
   } catch (err) {
     console.error('[kubo sync] failed:', err.message);
     res.status(500).json({ error: 'Kubo sync failed' });
+  } finally {
+    op.release();
   }
 });
 
@@ -2120,39 +2222,47 @@ router.post('/pins/:requestid/receipt', authenticate('pin:read'), async (req, re
 
 // POST /v1/pins/gc — Sweep unreferenced unpinned/blocked CIDs from Kubo and run repo GC
 router.post('/pins/gc', authenticate('pin:write'), async (req, res) => {
-  const db = getDb();
-  const candidates = db
-    .prepare(
-      `SELECT DISTINCT cid FROM pins WHERE status IN ('unpinned', 'blocked_uk_osa')`
-    )
-    .all();
+  const op = acquireExpensiveOp(req.tenant.i_address, 'gc');
+  if (!op.ok) return rejectExpensiveOp(res, 'pins-gc', op);
+  try {
+    const db = getDb();
+    const maxCandidates = EXPENSIVE_OP_LIMITS.gc.maxCandidatesPerRequest;
+    const candidates = db
+      .prepare(
+        `SELECT DISTINCT cid FROM pins WHERE status IN ('unpinned', 'blocked_uk_osa') LIMIT ?`
+      )
+      .all(maxCandidates);
 
-  let unpinnedCids = 0;
-  for (const row of candidates) {
-    if (countActivePinReferences(row.cid) === 0) {
-      const removed = await kuboPinRm(row.cid);
-      if (removed) unpinnedCids++;
+    let unpinnedCids = 0;
+    for (const row of candidates) {
+      if (countActivePinReferences(row.cid) === 0) {
+        const removed = await kuboPinRm(row.cid);
+        if (removed) unpinnedCids++;
+      }
     }
+
+    const runRepoGc = Boolean(req.body?.runRepoGc);
+    const repoGc = runRepoGc ? await kuboRepoGc() : { ok: true, reclaimedBlocks: 0 };
+
+    writeAuditLog({
+      iAddress: req.tenant.i_address,
+      actorType: req.authType || 'tenant',
+      action: 'pin.gc_sweep',
+      targetId: null,
+      details: { candidatesChecked: candidates.length, unpinnedCids, repoGc, capped: candidates.length >= maxCandidates },
+      ipAddress: req.ip,
+    });
+
+    res.json({
+      ok: true,
+      candidatesChecked: candidates.length,
+      unpinnedCids,
+      repoGc,
+      capped: candidates.length >= maxCandidates,
+    });
+  } finally {
+    op.release();
   }
-
-  const runRepoGc = Boolean(req.body?.runRepoGc);
-  const repoGc = runRepoGc ? await kuboRepoGc() : { ok: true, reclaimedBlocks: 0 };
-
-  writeAuditLog({
-    iAddress: req.tenant.i_address,
-    actorType: req.authType || 'tenant',
-    action: 'pin.gc_sweep',
-    targetId: null,
-    details: { candidatesChecked: candidates.length, unpinnedCids, repoGc },
-    ipAddress: req.ip,
-  });
-
-  res.json({
-    ok: true,
-    candidatesChecked: candidates.length,
-    unpinnedCids,
-    repoGc,
-  });
 });
 
 // DELETE /v1/pins/:requestid (Reference-counted unpinning on Kubo!)
@@ -2449,6 +2559,8 @@ router.post('/watchers', authenticate(), async (req, res) => {
 });
 
 router.post('/watchers/:watcherId/sync', authenticate(), async (req, res) => {
+  const op = acquireExpensiveOp(req.tenant.i_address, 'watcherSync');
+  if (!op.ok) return rejectExpensiveOp(res, 'watcher-sync', op);
   try {
     const db = getDb();
     const watcher = db
@@ -2493,11 +2605,15 @@ router.post('/watchers/:watcherId/sync', authenticate(), async (req, res) => {
     res.json({ watcher: updated, syncSummary });
   } catch (err) {
     res.status(400).json({ error: err.message || 'CMM sync failed' });
+  } finally {
+    op.release();
   }
 });
 
 // POST /v1/watchers/:watcherId/repair — Pin missing on-chain CIDs, verify SHA-256 against URLRef.datahash, and record in tenant ledger
 router.post('/watchers/:watcherId/repair', authenticate('pin:write'), async (req, res) => {
+  const op = acquireExpensiveOp(req.tenant.i_address, 'watcherRepair');
+  if (!op.ok) return rejectExpensiveOp(res, 'watcher-repair', op);
   try {
     const db = getDb();
     const watcher = db
@@ -2585,7 +2701,9 @@ router.post('/watchers/:watcherId/repair', authenticate('pin:write'), async (req
     }
 
     // Bounded concurrency like kuboPinMany: one slow CID must not stall repair.
-    const repairEntries = [...byCid.entries()];
+    const maxCids = EXPENSIVE_OP_LIMITS.watcherRepair.maxCidsPerRequest;
+    const repairEntries = [...byCid.entries()].slice(0, maxCids);
+    const capped = byCid.size > repairEntries.length;
     for (let i = 0; i < repairEntries.length; i += 8) {
       const batch = repairEntries.slice(i, i + 8);
       const results = await Promise.allSettled(batch.map(([cid, ref]) => repairOneCid(cid, ref)));
@@ -2635,12 +2753,15 @@ router.post('/watchers/:watcherId/repair', authenticate('pin:write'), async (req
       targetIdentity: watcher.target_identity,
       repairedCount: repaired.length,
       failedCount: failed.length,
+      capped,
       repaired,
       failed,
     });
   } catch (err) {
     console.error('[watcher repair] failed:', err.message);
     res.status(500).json({ error: 'Watcher repair failed' });
+  } finally {
+    op.release();
   }
 });
 
@@ -2908,7 +3029,123 @@ router.post('/billing/checkout', authenticate(), (req, res) => {
   });
 });
 
-// Settle invoice (supports on-chain txid verification on VRSCTEST or Stripe GBP / instant Testnet settlement)
+function amountsClose(a, b, epsilon = 0.00000001) {
+  return Math.abs(Number(a) - Number(b)) <= epsilon;
+}
+
+function collectTxStrings(value, out = []) {
+  if (value == null) return out;
+  if (typeof value === 'string') {
+    out.push(value);
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectTxStrings(item, out);
+    return out;
+  }
+  if (typeof value === 'object') {
+    for (const item of Object.values(value)) collectTxStrings(item, out);
+  }
+  return out;
+}
+
+async function verifyVerusPaySettlementTx(invoice, txid) {
+  let tx = null;
+  try {
+    tx = await getRawTransaction(txid, 1);
+  } catch (err) {
+    // Fallback: some daemons/wallet setups expose details via gettransaction.
+    try {
+      tx = await getTransaction(txid);
+    } catch {
+      throw createHttpError(
+        400,
+        'UNVERIFIABLE_TXID',
+        `Unable to fetch transaction ${txid} from Verus daemon for verification`
+      );
+    }
+  }
+
+  if (!tx || typeof tx !== 'object') {
+    throw createHttpError(400, 'UNVERIFIABLE_TXID', 'Verus daemon returned no verifiable transaction data');
+  }
+
+  const txidMatches = !tx.txid || String(tx.txid).toLowerCase() === txid.toLowerCase();
+  if (!txidMatches) {
+    throw createHttpError(400, 'TXID_MISMATCH', 'Fetched transaction txid does not match the supplied txid');
+  }
+
+  const expectedMemo = String(invoice.veruspay_memo || '').trim();
+  const expectedInvoice = String(invoice.invoice_number || '').trim();
+  const haystack = collectTxStrings(tx).join('\n');
+  const memoMatched = (expectedMemo && haystack.includes(expectedMemo)) || (expectedInvoice && haystack.includes(expectedInvoice));
+  if (!memoMatched) {
+    throw createHttpError(
+      400,
+      'MEMO_MISMATCH',
+      'Transaction does not contain the expected VerusPay invoice memo/reference'
+    );
+  }
+
+  const recipient = String(invoice.receiving_identity || '').trim();
+  const expectedAmount = Number(invoice.amount_vrsc);
+  let amountMatched = false;
+
+  const vouts = Array.isArray(tx.vout) ? tx.vout : [];
+  for (const vout of vouts) {
+    const spk = vout?.scriptPubKey || {};
+    const addresses = []
+      .concat(Array.isArray(spk.addresses) ? spk.addresses : [])
+      .concat(spk.address ? [spk.address] : [])
+      .concat(spk.identityprimary ? [spk.identityprimary] : [])
+      .map((a) => String(a));
+    const addressMatched = !recipient || addresses.includes(recipient);
+    const voutAmount = Number(vout?.value ?? vout?.valueSat ?? vout?.amount ?? NaN);
+    if (addressMatched && Number.isFinite(voutAmount) && amountsClose(voutAmount, expectedAmount)) {
+      amountMatched = true;
+      break;
+    }
+    // Some Verus outputs encode value under nested objects; best-effort scan.
+    if (addressMatched) {
+      const voutStrings = collectTxStrings(vout).join(' ');
+      if (voutStrings.includes(String(expectedAmount)) || voutStrings.includes(expectedAmount.toFixed(8))) {
+        amountMatched = true;
+        break;
+      }
+    }
+  }
+
+  // Fallback: wallet-style gettransaction may summarize amount/details.
+  if (!amountMatched && Number.isFinite(expectedAmount)) {
+    if (amountsClose(Math.abs(Number(tx.amount || 0)), expectedAmount)) amountMatched = true;
+    const details = Array.isArray(tx.details) ? tx.details : [];
+    for (const detail of details) {
+      const addr = String(detail?.address || detail?.account || '');
+      const amt = Math.abs(Number(detail?.amount || 0));
+      if ((!recipient || addr === recipient) && amountsClose(amt, expectedAmount)) {
+        amountMatched = true;
+        break;
+      }
+    }
+  }
+
+  if (!amountMatched) {
+    throw createHttpError(
+      400,
+      'PAYMENT_NOT_VERIFIED',
+      'Transaction does not prove the expected VRSC amount was paid to the receiving identity'
+    );
+  }
+
+  // Require at least one confirmation/network acceptance signal when available.
+  if (typeof tx.confirmations === 'number' && tx.confirmations < 0) {
+    throw createHttpError(400, 'TX_CONFLICTED', 'Transaction is conflicted and cannot settle an invoice');
+  }
+
+  return { txid: String(tx.txid || txid), confirmations: Number(tx.confirmations || 0) };
+}
+
+// Settle invoice with verified payment proof (no self-settlement for paid invoices).
 router.post('/billing/invoices/:invoiceId/settle', authenticate(), async (req, res) => {
   try {
     const db = getDb();
@@ -2922,21 +3159,49 @@ router.post('/billing/invoices/:invoiceId/settle', authenticate(), async (req, r
       return res.json({ invoice, alreadyPaid: true });
     }
 
-    let settledTxid = String(req.body?.txid || '').trim();
-    if (settledTxid) {
-      // Verify the transaction exists on the live VRSCTEST daemon if a real 64-hex txid is passed
-      if (/^[0-9a-fA-F]{64}$/.test(settledTxid)) {
-        try {
-          await getTransaction(settledTxid);
-        } catch {
-          // If not in local wallet, allow raw txid format on testnet
-        }
+    const providedTxid = String(req.body?.txid || '').trim();
+    let settledTxid = providedTxid;
+    let verification = null;
+
+    if (invoice.payment_rail === 'stripe_gbp') {
+      return res.status(400).json({
+        error: {
+          reason: 'WEBHOOK_SETTLEMENT_REQUIRED',
+          details:
+            'Stripe GBP invoices are settled via verified Stripe webhooks. Manual settlement is not permitted.',
+        },
+      });
+    }
+
+    if (invoice.payment_rail === 'veruspay') {
+      if (!/^[0-9a-fA-F]{64}$/.test(providedTxid)) {
+        return res.status(400).json({
+          error: {
+            reason: 'TXID_REQUIRED',
+            details: 'A valid 64-character Verus transaction id (txid) is required to settle a VerusPay invoice',
+          },
+        });
+      }
+      // Paid plan upgrades require on-chain proof matching invoice recipient, amount, and memo.
+      // Existing paid-plan invoices with amount_vrsc <= 0 are invalid and cannot be auto-settled.
+      if (Number(invoice.amount_vrsc) > 0 || Number(invoice.total_gbp_pence) > 0) {
+        verification = await verifyVerusPaySettlementTx(invoice, providedTxid);
+        settledTxid = verification.txid;
+      } else {
+        return res.status(400).json({
+          error: {
+            reason: 'INVALID_INVOICE_AMOUNT',
+            details: 'Invoice amount is invalid; cannot settle without verified payment proof',
+          },
+        });
       }
     } else {
-      settledTxid =
-        invoice.payment_rail === 'stripe_gbp'
-          ? `stripe_gbp_pi_${crypto.randomBytes(12).toString('hex')}`
-          : `vrsctest_tx_${crypto.randomBytes(16).toString('hex')}`;
+      return res.status(400).json({
+        error: {
+          reason: 'UNSUPPORTED_PAYMENT_RAIL',
+          details: `Unsupported payment rail for manual settlement: ${invoice.payment_rail}`,
+        },
+      });
     }
 
     const now = new Date().toISOString();
@@ -2951,6 +3216,20 @@ router.post('/billing/invoices/:invoiceId/settle', authenticate(), async (req, r
       req.tenant.i_address
     );
 
+    writeAuditLog({
+      iAddress: req.tenant.i_address,
+      actorType: req.authType || 'tenant',
+      action: 'billing.invoice_settled',
+      targetId: invoice.invoice_id,
+      details: {
+        paymentRail: invoice.payment_rail,
+        txid: settledTxid,
+        confirmations: verification?.confirmations ?? null,
+        planId: invoice.plan_id,
+      },
+      ipAddress: req.ip,
+    });
+
     const updatedInvoice = db
       .prepare('SELECT * FROM invoices WHERE invoice_id = ?')
       .get(invoice.invoice_id);
@@ -2962,9 +3241,16 @@ router.post('/billing/invoices/:invoiceId/settle', authenticate(), async (req, r
       invoice: updatedInvoice,
       tenant: updatedTenant,
       plan: config.PLANS[updatedTenant.plan_id],
+      verification: verification || null,
     });
   } catch (err) {
-    res.status(400).json({ error: err.message || 'Failed to settle invoice' });
+    const status = Number(err.status) || 400;
+    res.status(status).json({
+      error:
+        err.reason && err.message
+          ? { reason: err.reason, details: err.message }
+          : err.message || 'Failed to settle invoice',
+    });
   }
 });
 
@@ -3290,13 +3576,14 @@ router.post('/internal/blocknotify', async (req, res) => {
   // nothing. When a secret is configured it is required on EVERY request,
   // loopback included. With no secret configured (local dev only), loopback
   // is allowed and anything else is rejected.
-  const configuredSecret = process.env.SOVPIN_INTERNAL_SECRET || '';
+  const configuredSecret = process.env.SOVPIN_INTERNAL_SECRET || config.sovpinInternalSecret || '';
   if (!configuredSecret) {
     // In production, refuse to run without a secret.
     if ((process.env.NODE_ENV || 'production') !== 'development') {
       return res.status(503).json({ error: 'Internal endpoint not configured' });
     }
-    const isLoopback = req.ip === '127.0.0.1' || req.ip === '::1' || req.ip === '::ffff:127.0.0.1';
+    const peerIp = req.socket?.remoteAddress || req.connection?.remoteAddress || '';
+    const isLoopback = peerIp === '127.0.0.1' || peerIp === '::1' || peerIp === '::ffff:127.0.0.1';
     if (!isLoopback) return res.status(403).json({ error: 'Internal endpoint — loopback required' });
     return res.json(await syncWatchersForBlock({ blockHeight, blockHash, trigger: 'blocknotify' }));
   }

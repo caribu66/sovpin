@@ -81,16 +81,23 @@ const config = {
   tunnelId: process.env.CF_TUNNEL_ID || '990fae36-b92b-457b-af17-5737ed2d8a35',
   rulesetId: process.env.CF_RULESET_ID || '2e7849d6314246df8346142659b21066',
   zone: process.env.CF_ZONE || 'sovpin.com',
+  cfBin: process.env.CF_BIN || '/home/demon/.local/bin/cf',
+  tailscaleBin: process.env.TAILSCALE_BIN || 'tailscale',
+  sshBin: process.env.SSH_BIN || 'ssh',
+  macbookSshKeyPath: process.env.MACBOOK_SSH_KEY_PATH || '/home/demon/.ssh/vreal_mirror_ed25519',
+  macbookSshTarget: process.env.MACBOOK_SSH_TARGET || 'macbook@192.168.86.110',
   verusRpcHost: process.env.VERUS_RPC_HOST || '192.168.86.110',
   verusRpcPort: Number(process.env.VERUS_RPC_PORT || 25779),
-  verusRpcUser: process.env.VERUS_RPC_USER || 'test',
-  verusRpcPassword: process.env.VERUS_RPC_PASSWORD || 'test',
+  // No credential defaults: require explicit configuration per environment.
+  verusRpcUser: process.env.VERUS_RPC_USER || '',
+  verusRpcPassword: process.env.VERUS_RPC_PASSWORD || '',
   verusChain: process.env.VERUS_CHAIN || 'VRSCTEST',
   chainIAddress: process.env.VERUS_CHAIN_I_ADDRESS || 'iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq',
   sovpinReceivingIdentity: process.env.SOVPIN_RECEIVING_ID || 'vreal.VRSCTEST@',
   sovpinSignerIdentity: process.env.SOVPIN_SIGNER_ID || 'sovpin.VRSCTEST@',
   sovpinSignerIAddress: process.env.SOVPIN_SIGNER_I_ADDRESS || 'iCyhNFeRiKdX7rgAYJdz54z2pTT9M1RYUt',
   sovpinSignerWif: process.env.SOVPIN_SIGNER_WIF || '',
+  sovpinInternalSecret: process.env.SOVPIN_INTERNAL_SECRET || '',
   sovpinCallbackHost: process.env.SOVPIN_CALLBACK_HOST || 'https://dashboard.sovpin.com',
   allowPublicNodeSign: process.env.ALLOW_PUBLIC_NODE_SIGN === 'true',
   adminIdentities: (
@@ -101,6 +108,7 @@ const config = {
     .map((s) => s.trim())
     .filter(Boolean),
   gbpPerVrscRate: Number(process.env.GBP_PER_VRSC_RATE || 3.0), // Spot reference £3.00 / VRSC
+  // No secret defaults: configure per environment when integrations are enabled.
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
   stripeSecretKey: process.env.STRIPE_SECRET_KEY || '',
   ukCompany: {

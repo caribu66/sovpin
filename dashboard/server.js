@@ -1,5 +1,5 @@
 const express = require('express');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 const path = require('path');
 const config = require('./src/config');
 const saasRoutes = require('./src/saas-routes');
@@ -7,24 +7,75 @@ const { getDb, getSystemMetricsCounts } = require('./src/db');
 const { getDaemonInfo, verusRpc } = require('./src/verus-rpc');
 
 const app = express();
+// Do not trust X-Forwarded-* headers by default; req.ip must reflect the direct peer.
+// Loopback-only/admin protections use the socket peer address explicitly.
+app.set('trust proxy', false);
+
+function getSocketIp(req) {
+  return req.socket?.remoteAddress || req.connection?.remoteAddress || '';
+}
+
+function isLoopbackSocket(req) {
+  const ip = getSocketIp(req);
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+}
+
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
   if (req.secure || req.get('x-forwarded-proto') === 'https') {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   }
   next();
 });
-if ((process.env.NODE_ENV || 'production') === 'production' && !config.sovpinSignerWif) {
-  console.error('[Security] SOVPIN_SIGNER_WIF is required. Refusing to start.');
-  process.exit(1);
+function validateSensitiveConfig() {
+  const isProduction = (process.env.NODE_ENV || 'production') === 'production';
+  const missing = [];
+  const weak = [];
+  const warnings = [];
+
+  if (!config.sovpinSignerWif) missing.push('SOVPIN_SIGNER_WIF');
+  if (!config.verusRpcUser) missing.push('VERUS_RPC_USER');
+  if (!config.verusRpcPassword) missing.push('VERUS_RPC_PASSWORD');
+  if (config.verusRpcUser === 'test' || config.verusRpcPassword === 'test') {
+    weak.push('VERUS_RPC_USER/PASSWORD must not use test defaults');
+  }
+  if (!config.sovpinInternalSecret) {
+    missing.push('SOVPIN_INTERNAL_SECRET');
+    warnings.push(
+      'SOVPIN_INTERNAL_SECRET is not set: /v1/internal/blocknotify is disabled in production and loopback-only in development.'
+    );
+  }
+  if (!config.stripeWebhookSecret) {
+    warnings.push(
+      'STRIPE_WEBHOOK_SECRET is not set: Stripe webhook settlement endpoint will reject requests (503) until configured.'
+    );
+  }
+
+  const issues = [...missing.map((k) => `${k} is not set`), ...weak];
+  if (issues.length === 0) {
+    for (const w of warnings) console.warn(`[Security] ${w}`);
+    return;
+  }
+
+  const prefix = '[Security] Sensitive configuration incomplete:';
+  if (isProduction) {
+    console.error(prefix);
+    for (const issue of issues) console.error(`  - ${issue}`);
+    for (const w of warnings) console.error(`  - ${w}`);
+    console.error('Refusing to start in production. Set required secrets/integrations and restart.');
+    process.exit(1);
+  }
+
+  console.warn(`${prefix} (development/test mode; continuing without enforcement)`);
+  for (const issue of issues) console.warn(`  - ${issue}`);
+  for (const w of warnings) console.warn(`  - ${w}`);
 }
-if ((process.env.NODE_ENV || 'production') === 'production' && (!config.verusRpcUser || config.verusRpcUser === 'test' || !config.verusRpcPassword || config.verusRpcPassword === 'test')) {
-  console.error('[Security] VERUS_RPC_USER/PASSWORD must be set to non-default values in production.');
-  process.exit(1);
-}
+
+validateSensitiveConfig();
 const PORT = config.port;
 const TAILSCALE_IP = config.tailscaleIp;
 const TUNNEL_ID = config.tunnelId;
@@ -45,22 +96,35 @@ app.use('/ops', express.static(path.join(__dirname, 'public')));
 // Mount Verus-Native Commercial SaaS API v1
 app.use('/v1', saasRoutes);
 
-function runCmd(cmd, timeoutMs = 10000) {
+function runCmdArgs(file, args = [], timeoutMs = 10000) {
   return new Promise((resolve) => {
-    exec(cmd, { timeout: timeoutMs }, (err, stdout, stderr) => {
+    execFile(file, args, { timeout: timeoutMs }, (err, stdout, stderr) => {
       resolve({ ok: !err, stdout: stdout || '', stderr: stderr || '', code: err?.code });
     });
   });
 }
 
-function kuboRpc(endpoint, method = 'POST') {
-  return runCmd(`curl -sf -X ${method} -m 5 "http://${TAILSCALE_IP}:5001${endpoint}"`, 8000);
+function isSafeConfigToken(value) {
+  return typeof value === 'string' && /^[A-Za-z0-9._:-]+$/.test(value);
 }
 
-// ── Guard: infrastructure endpoints are loopback-only ──────────────
+function kuboRpc(endpoint, method = 'POST') {
+  const allowedMethods = new Set(['GET', 'POST', 'PUT', 'DELETE']);
+  const m = String(method || 'POST').toUpperCase();
+  if (!allowedMethods.has(m)) throw new Error('Invalid HTTP method');
+  if (typeof endpoint !== 'string' || !endpoint.startsWith('/')) throw new Error('Invalid endpoint');
+  // Only allow safe path characters.
+  if (!/^\/[A-Za-z0-9_./-]*$/.test(endpoint)) throw new Error('Invalid endpoint');
+  return new Promise((resolve) => {
+    execFile('curl', ['-sf', '-X', m, '-m', '5', `http://${TAILSCALE_IP}:5001${endpoint}`], { timeout: 8000 }, (err, stdout, stderr) => {
+      resolve({ ok: !err, stdout: stdout || '', stderr: stderr || '', code: err?.code });
+    });
+  });
+}
+
+// ── Guard: infrastructure endpoints are loopback-only (socket peer, not forwarded headers) ──────────────
 function loopbackOnly(req, res, next) {
-  const ip = req.ip || req.socket?.remoteAddress || '';
-  if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') return next();
+  if (isLoopbackSocket(req)) return next();
   return res.status(403).json({ error: 'Forbidden' });
 }
 app.use('/api', loopbackOnly);
@@ -143,11 +207,18 @@ app.get('/api/verus', async (req, res) => {
 
 // ── Cloudflare ────────────────────────────────────────────────────
 app.get('/api/cloudflare', async (req, res) => {
-  const [tunnel, cacheRuleset, rulesets] = await Promise.all([
-    runCmd(`/home/demon/.local/bin/cf tunnels config get ${TUNNEL_ID}`, 10000),
-    runCmd(`/home/demon/.local/bin/cf rulesets get ${RULESET_ID} -z ${ZONE}`, 10000),
-    runCmd(`/home/demon/.local/bin/cf rulesets list -z ${ZONE}`, 10000),
-  ]);
+  const canQuery = isSafeConfigToken(TUNNEL_ID) && isSafeConfigToken(RULESET_ID) && isSafeConfigToken(ZONE);
+  const [tunnel, cacheRuleset, rulesets] = canQuery
+    ? await Promise.all([
+        runCmdArgs(config.cfBin, ['tunnels', 'config', 'get', TUNNEL_ID], 10000),
+        runCmdArgs(config.cfBin, ['rulesets', 'get', RULESET_ID, '-z', ZONE], 10000),
+        runCmdArgs(config.cfBin, ['rulesets', 'list', '-z', ZONE], 10000),
+      ])
+    : [
+        { ok: false, stdout: '', stderr: 'Invalid Cloudflare configuration tokens', code: 'EINVAL' },
+        { ok: false, stdout: '', stderr: 'Invalid Cloudflare configuration tokens', code: 'EINVAL' },
+        { ok: false, stdout: '', stderr: 'Invalid Cloudflare configuration tokens', code: 'EINVAL' },
+      ];
 
   let tunnelData = {};
   try { tunnelData = JSON.parse(tunnel.stdout); } catch { /* ignore */ }
@@ -187,8 +258,21 @@ app.get('/api/cloudflare', async (req, res) => {
 // ── Tailscale ─────────────────────────────────────────────────────
 app.get('/api/tailscale', async (req, res) => {
   const [tsStatus, macbookSsh] = await Promise.all([
-    runCmd('tailscale status --json', 5000),
-    runCmd(`ssh -i /home/demon/.ssh/vreal_mirror_ed25519 -o ConnectTimeout=5 macbook@192.168.86.110 'uptime; free -m | head -n 2; df -h / | tail -n 1'`, 10000),
+    runCmdArgs(config.tailscaleBin, ['status', '--json'], 5000),
+    runCmdArgs(
+      config.sshBin,
+      [
+        '-i',
+        config.macbookSshKeyPath,
+        '-o',
+        'ConnectTimeout=5',
+        '-o',
+        'BatchMode=yes',
+        config.macbookSshTarget,
+        'uptime; free -m | head -n 2; df -h / | tail -n 1',
+      ],
+      10000
+    ),
   ]);
 
   let tsData = {};
@@ -341,6 +425,9 @@ app.get('/metrics', loopbackOnly, async (_req, res) => {
 });
 
 app.get('/api/health', async (req, res) => {
+  const cfCmd = isSafeConfigToken(TUNNEL_ID)
+    ? runCmdArgs(config.cfBin, ['tunnels', 'config', 'get', TUNNEL_ID], 8000)
+    : Promise.resolve({ ok: false, stdout: '', stderr: 'Invalid tunnel id', code: 'EINVAL' });
   const [kubo, cf, ts, verus] = await Promise.all([
     new Promise((resolve) => {
       kuboRpc('/api/v0/version').then(r => {
@@ -349,8 +436,8 @@ app.get('/api/health', async (req, res) => {
         resolve({ online: r.ok, version: v.Version });
       });
     }),
-    runCmd(`/home/demon/.local/bin/cf tunnels config get ${TUNNEL_ID}`, 8000),
-    runCmd('tailscale status --json', 5000),
+    cfCmd,
+    runCmdArgs(config.tailscaleBin, ['status', '--json'], 5000),
     getDaemonInfo().then(info => ({ online: true, blocks: info.blocks })).catch(() => ({ online: false })),
   ]);
 
@@ -386,12 +473,7 @@ if (require.main === module) {
   const httpServer = app.listen(PORT, config.bindHost, () => {
     console.log(`SovPin SaaS & Ops Platform running at http://${config.bindHost}:${PORT}`);
   });
-  if (!process.env.SOVPIN_INTERNAL_SECRET) {
-    console.warn(
-      '[Security] SOVPIN_INTERNAL_SECRET is not set: the internal blocknotify endpoint ' +
-        'accepts loopback without authentication. Set a secret in production.'
-    );
-  }
+  // Sensitive config validation/warnings are emitted at startup (see validateSensitiveConfig).
   const cmmSyncTimer = setInterval(runCmmAutoSync, CMM_SYNC_INTERVAL_MS);
   console.log(`[CMM Auto-Sync] Poller started (interval: ${CMM_SYNC_INTERVAL_MS / 1000}s)`);
 

@@ -3,9 +3,10 @@
 # Usage: ./scripts/deploy-kubo.sh
 set -euo pipefail
 
-MACBOOK="macbook@192.168.86.110"
-SSH_KEY="$HOME/.ssh/vreal_mirror_ed25519"
-TAILSCALE_IP="100.66.85.86"
+# Override via environment to align with the target host/deployment.
+MACBOOK="${MACBOOK:-macbook@192.168.86.110}"
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/vreal_mirror_ed25519}"
+TAILSCALE_IP="${TAILSCALE_IP:-100.66.85.86}"
 
 echo "=== SovPin Kubo Deploy ==="
 echo "Target: $MACBOOK (Tailscale: $TAILSCALE_IP)"

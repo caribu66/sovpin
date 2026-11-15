@@ -116,6 +116,10 @@ async function getTransaction(txid) {
   return verusRpc('gettransaction', [txid, true]);
 }
 
+async function getRawTransaction(txid, verbose = 1) {
+  return verusRpc('getrawtransaction', [txid, verbose]);
+}
+
 module.exports = {
   verusRpc,
   getDaemonInfo,
@@ -125,4 +129,5 @@ module.exports = {
   verifySignature,
   signData,
   getTransaction,
+  getRawTransaction,
 };

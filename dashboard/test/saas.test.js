@@ -3,6 +3,34 @@ const test = require('node:test');
 const fs = require('node:fs');
 const path = require('node:path');
 
+function loadEnvIfPresent(envPath) {
+  try {
+    const content = fs.readFileSync(envPath, 'utf8');
+    for (const rawLine of content.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#')) continue;
+      const eq = line.indexOf('=');
+      if (eq <= 0) continue;
+      const key = line.slice(0, eq).trim();
+      if (!key || process.env[key] !== undefined) continue;
+      let value = line.slice(eq + 1).trim();
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      process.env[key] = value;
+    }
+  } catch {
+    // Optional: live integration tests can still run if required env is already provided.
+  }
+}
+
+// Load deployment env (e.g. SOVPIN_SIGNER_WIF, RPC/Kubo credentials) when available,
+// without overriding explicit test harness values below.
+loadEnvIfPresent(path.join(__dirname, '..', '.env'));
+
 const testDbPath = path.join('/tmp', `sovpin-test-${Date.now()}.sqlite`);
 process.env.NODE_ENV = 'test';
 process.env.SOVPIN_DB_PATH = testDbPath;
@@ -432,7 +460,7 @@ test('5b. CMM traversal includes decoded reference and Kubo health fields, and /
   }
 });
 
-test('6. Generate UK VAT + VerusPay Invoice (£12.00 + 20% VAT = £14.40 / 4.8 VRSC) and settle plan upgrade', async () => {
+test('6. Generate UK VAT + VerusPay Invoice (£12.00 + 20% VAT = £14.40 / 4.8 VRSC); reject unauthorized self-settlement and require verified on-chain proof', async () => {
   const checkoutRes = await fetch(`${baseUrl}/v1/billing/checkout`, {
     method: 'POST',
     headers: {
@@ -452,7 +480,8 @@ test('6. Generate UK VAT + VerusPay Invoice (£12.00 + 20% VAT = £14.40 / 4.8 V
   assert.equal(checkoutBody.invoice.amount_vrsc, 4.8);
   invoiceId = checkoutBody.invoice.invoice_id;
 
-  const settleRes = await fetch(`${baseUrl}/v1/billing/invoices/${invoiceId}/settle`, {
+  // Fix #1: paid invoices must not be self-settleable without verified payment proof.
+  const noTxidRes = await fetch(`${baseUrl}/v1/billing/invoices/${invoiceId}/settle`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -460,10 +489,47 @@ test('6. Generate UK VAT + VerusPay Invoice (£12.00 + 20% VAT = £14.40 / 4.8 V
     },
     body: JSON.stringify({}),
   });
-  assert.equal(settleRes.status, 200);
-  const settleBody = await settleRes.json();
-  assert.equal(settleBody.invoice.status, 'paid');
-  assert.equal(settleBody.tenant.plan_id, 'indie');
+  assert.equal(noTxidRes.status, 400);
+  const noTxidBody = await noTxidRes.json();
+  assert.equal(noTxidBody.error.reason, 'TXID_REQUIRED');
+
+  const fakeTxid = '11'.repeat(32);
+  const unverifiableRes = await fetch(`${baseUrl}/v1/billing/invoices/${invoiceId}/settle`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${sessionToken}`,
+    },
+    body: JSON.stringify({ txid: fakeTxid }),
+  });
+  assert.equal(unverifiableRes.status, 400);
+  const unverifiableBody = await unverifiableRes.json();
+  assert.ok(['UNVERIFIABLE_TXID', 'MEMO_MISMATCH', 'PAYMENT_NOT_VERIFIED', 'TXID_MISMATCH'].includes(unverifiableBody.error.reason));
+
+  // Simulate a verified settlement (as Stripe webhook / verified on-chain processor would do)
+  // to keep downstream plan-dependent test coverage deterministic in CI/live-test environments.
+  const { getDb } = require('../src/db');
+  const db = getDb();
+  const now = new Date().toISOString();
+  const verifiedTxid = '22'.repeat(32);
+  db.prepare(`UPDATE invoices SET status = 'paid', txid = ?, paid_at = ? WHERE invoice_id = ?`).run(
+    verifiedTxid,
+    now,
+    invoiceId
+  );
+  db.prepare('UPDATE tenants SET plan_id = ?, updated_at = ? WHERE i_address = ?').run(
+    'indie',
+    now,
+    'iEmX7PJUtAwp1a1xxrPi215G7FMxwVr5XX'
+  );
+
+  const accountRes = await fetch(`${baseUrl}/v1/account`, {
+    headers: { Authorization: `Bearer ${sessionToken}` },
+  });
+  assert.equal(accountRes.status, 200);
+  const accountBody = await accountRes.json();
+  assert.equal(accountBody.tenant.plan_id, 'indie');
+  assert.equal(accountBody.plan.id, 'indie');
 });
 
 test('8. VerusID QR LoginConsent flow: challenge → user-signed response → callback → poll → session', async () => {

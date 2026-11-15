@@ -1,5 +1,6 @@
 const crypto = require('node:crypto');
 const { getDb } = require('./db');
+const { assertSafeOutboundUrl } = require('./outbound-url-safety');
 
 const MAX_RETRIES = 3;
 const RETRY_DELAYS_MS = [1000, 5000, 15000];
@@ -84,18 +85,7 @@ function dispatchWebhook(iAddress, event, data) {
   }
 }
 
-function isPublicWebhookUrl(url) {
-  let parsed;
-  try { parsed = new URL(url); } catch { return false; }
-  const host = parsed.hostname.toLowerCase();
-  if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '::1' ||
-      host === '169.254.169.254' || host.endsWith('.localhost') || host.endsWith('.internal')) return false;
-  if (/^(10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|169\\.254\\.|127\\.)/.test(host)) return false;
-  return true;
-}
-
 async function attemptDelivery(deliveryId, webhook, payloadJson, attemptIndex) {
-  if (!isPublicWebhookUrl(webhook.url)) return;
   const db = getDb();
   const hmac = crypto.createHmac('sha256', webhook.secret).update(payloadJson, 'utf8').digest('hex');
   const now = new Date().toISOString();
@@ -104,6 +94,8 @@ async function attemptDelivery(deliveryId, webhook, payloadJson, attemptIndex) {
   let success = false;
 
   try {
+    // Re-validate and re-resolve on every attempt to reduce DNS-rebinding risk.
+    await assertSafeOutboundUrl(webhook.url, { resolveDns: true });
     const res = await fetch(webhook.url, {
       method: 'POST',
       headers: {
@@ -114,10 +106,12 @@ async function attemptDelivery(deliveryId, webhook, payloadJson, attemptIndex) {
         'User-Agent': 'SovPin-Webhook/1.0',
       },
       body: payloadJson,
+      redirect: 'manual',
       signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
     });
     responseStatus = res.status;
-    success = res.ok;
+    // Do not follow redirects: a redirect could target a different (private) host.
+    success = res.ok && !(res.status >= 300 && res.status < 400);
   } catch {
     responseStatus = null;
     success = false;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
 import { Routes, Route, Navigate, Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   Database,
@@ -105,19 +105,20 @@ function ConsoleShell({ children }: { children: React.ReactNode }) {
   const [cmdQuery, setCmdQuery] = useState('');
   const [health, setHealth] = useState<any>(null);
 
-  useEffect(() => {
-    const checkHealth = async () => {
-      try {
-        const h = await api<any>('/healthz');
-        setHealth(h);
-      } catch {
-        setHealth({ healthy: false, kubo: { online: false }, verus: { online: false }, db: { online: false } });
-      }
-    };
-    void checkHealth();
-    const interval = setInterval(() => void checkHealth(), 15000);
-    return () => clearInterval(interval);
+  const checkHealth = useCallback(async () => {
+    try {
+      const h = await api<any>('/healthz');
+      setHealth(h);
+    } catch {
+      setHealth({ healthy: false, kubo: { online: false }, verus: { online: false }, db: { online: false } });
+    }
   }, []);
+
+  useEffect(() => {
+    const t = setTimeout(() => void checkHealth(), 0);
+    const interval = setInterval(() => void checkHealth(), 15000);
+    return () => { clearTimeout(t); clearInterval(interval); };
+  }, [checkHealth]);
 
   useEffect(() => {
     document.title = health?.healthy
@@ -139,6 +140,38 @@ function ConsoleShell({ children }: { children: React.ReactNode }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  useEffect(() => {
+    if (!cmdOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const panel = document.querySelector<HTMLElement>('[aria-label="Command palette"]');
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const focusable = () =>
+      Array.from(panel?.querySelectorAll<HTMLElement>('button, input, [href], [tabindex]:not([tabindex="-1"])') ?? []).filter(
+        (el) => !el.hasAttribute('disabled')
+      );
+    const onTab = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab' || !panel) return;
+      const items = focusable();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener('keydown', onTab);
+    return () => {
+      window.removeEventListener('keydown', onTab);
+      document.body.style.overflow = prevOverflow;
+      previouslyFocused?.focus?.();
+    };
+  }, [cmdOpen]);
 
   if (!account) {
     return <div className="min-h-screen bg-[#090A0C] text-[#F3F4F6] p-6">{children}</div>;
