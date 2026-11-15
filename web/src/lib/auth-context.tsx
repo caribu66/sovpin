@@ -50,9 +50,12 @@ export type Account = {
   };
 };
 
+export type AuthStatus = 'loading' | 'signedIn' | 'signedOut' | 'error';
+
 export type AuthCtx = {
   account: Account | null;
   loading: boolean;
+  status: AuthStatus;
   authError: string | null;
   activeApiKeySample: string;
   setActiveApiKeySample: (key: string) => void;
@@ -61,16 +64,16 @@ export type AuthCtx = {
   refresh: () => Promise<void>;
 };
 
-
-
 const LEGACY_SECRET_KEYS = ['sovpin_active_api_key_sample'];
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [account, setAccount] = useState<Account | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<AuthStatus>('loading');
   const [authError, setAuthError] = useState<string | null>(null);
   // Full API secrets stay in memory only — never persisted to localStorage.
   const [activeApiKeySample, setActiveApiKeySampleState] = useState<string>('');
+
+  const loading = status === 'loading';
 
   const setActiveApiKeySample = useCallback((key: string) => {
     setActiveApiKeySampleState(key);
@@ -83,17 +86,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const acc = await api<Account>('/v1/account');
       setAccount(acc);
       setAuthError(null);
+      setStatus('signedIn');
     } catch (e: any) {
       if (e?.status === 401 || e?.status === 403) {
         setAccount(null);
         setActiveApiKeySampleState('');
+        setStatus('signedOut');
         // Drop cached tenant data so a later sign-in never reads it.
         queryClient.removeQueries();
       } else {
         setAuthError(e?.message || 'Session check failed.');
+        setStatus('error');
       }
-    } finally {
-      setLoading(false);
     }
   }, []);
 
@@ -125,6 +129,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void api('/v1/auth/logout', { method: 'POST' }).catch(() => {});
     setAccount(null);
     setActiveApiKeySample('');
+    setStatus('signedOut');
     queryClient.removeQueries();
   }, [setActiveApiKeySample]);
 
@@ -138,6 +143,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       account,
       loading,
+      status,
       authError,
       activeApiKeySample,
       setActiveApiKeySample,
@@ -145,7 +151,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signOut,
       refresh,
     }),
-    [account, loading, authError, activeApiKeySample, setActiveApiKeySample, signIn, signOut, refresh]
+    [account, loading, status, authError, activeApiKeySample, setActiveApiKeySample, signIn, signOut, refresh]
   );
 
   return (
