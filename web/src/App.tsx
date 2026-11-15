@@ -103,6 +103,7 @@ function ConsoleShell({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const [cmdOpen, setCmdOpen] = useState(false);
   const [cmdQuery, setCmdQuery] = useState('');
+  const [helpOpen, setHelpOpen] = useState(false);
   const [health, setHealth] = useState<any>(null);
 
   const checkHealth = useCallback(async () => {
@@ -133,8 +134,11 @@ function ConsoleShell({ children }: { children: React.ReactNode }) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setCmdOpen((v) => !v);
+      } else if (e.key === '?') {
+        setHelpOpen((v) => !v);
       } else if (e.key === 'Escape') {
         setCmdOpen(false);
+        setHelpOpen(false);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -492,6 +496,26 @@ function ConsoleShell({ children }: { children: React.ReactNode }) {
                 </button>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {helpOpen && (
+        <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4" onClick={() => setHelpOpen(false)}>
+          <div role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" className="w-full max-w-md bg-[#181B20] border border-[#22262E] font-mono text-xs p-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[#F3F4F6] font-bold uppercase">Keyboard shortcuts</span>
+              <button type="button" onClick={() => setHelpOpen(false)} aria-label="Close help" className="text-[#6B7280] hover:text-[#F3F4F6] cursor-pointer">✕</button>
+            </div>
+            <ul className="space-y-1.5 text-[#9CA3AF]">
+              <li className="flex justify-between"><span>Command palette</span><Kbd>⌘K</Kbd></li>
+              <li className="flex justify-between"><span>Pinned objects</span><Kbd>G O</Kbd></li>
+              <li className="flex justify-between"><span>Pin & VDXF studio</span><Kbd>G P</Kbd></li>
+              <li className="flex justify-between"><span>CMM watchers</span><Kbd>G W</Kbd></li>
+              <li className="flex justify-between"><span>Usage & billing</span><Kbd>G B</Kbd></li>
+              <li className="flex justify-between"><span>Close / dismiss</span><Kbd>Esc</Kbd></li>
+              <li className="flex justify-between"><span>This help</span><Kbd>?</Kbd></li>
+            </ul>
           </div>
         </div>
       )}
