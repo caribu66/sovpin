@@ -113,8 +113,9 @@ function kuboRpc(endpoint, method = 'POST') {
   const m = String(method || 'POST').toUpperCase();
   if (!allowedMethods.has(m)) throw new Error('Invalid HTTP method');
   if (typeof endpoint !== 'string' || !endpoint.startsWith('/')) throw new Error('Invalid endpoint');
-  // Only allow safe path characters.
-  if (!/^\/[A-Za-z0-9_./-]*$/.test(endpoint)) throw new Error('Invalid endpoint');
+  // Only allow safe path characters (query strings permitted: all call
+  // sites are hardcoded internal Kubo RPC paths, never user input).
+  if (!/^\/[A-Za-z0-9_.\/?=&-]*$/.test(endpoint)) throw new Error('Invalid endpoint');
   return new Promise((resolve) => {
     execFile('curl', ['-sf', '-X', m, '-m', '5', `http://${TAILSCALE_IP}:5001${endpoint}`], { timeout: 8000 }, (err, stdout, stderr) => {
       resolve({ ok: !err, stdout: stdout || '', stderr: stderr || '', code: err?.code });

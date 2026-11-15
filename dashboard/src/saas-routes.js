@@ -105,6 +105,13 @@ function enforceGlobalRateLimit(req, res, next) {
 }
 
 function enforceAuthRateLimit(req, res, next) {
+  // The login-consent poll endpoint is hit every ~2s by legitimate clients and
+  // carries its own per-session throttle (enforceIdentityAuthLimit 'lc-poll').
+  // Counting it against this per-IP bucket makes idle pages trip 429s, so
+  // exempt it here.
+  if (req.path === '/login-consent/poll' || req.originalUrl?.includes('/auth/login-consent/poll')) {
+    return next();
+  }
   const key = getClientIp(req);
   const now = Date.now();
   const windowMs = 60_000;
@@ -3706,7 +3713,12 @@ router.post('/internal/blocknotify', async (req, res) => {
     const peerIp = req.socket?.remoteAddress || req.connection?.remoteAddress || '';
     const isLoopback = peerIp === '127.0.0.1' || peerIp === '::1' || peerIp === '::ffff:127.0.0.1';
     if (!isLoopback) return res.status(403).json({ error: 'Internal endpoint — loopback required' });
-    return res.json(await syncWatchersForBlock({ blockHeight, blockHash, trigger: 'blocknotify' }));
+    return res.status(202).json({ ok: true, trigger: 'blocknotify' });
+  setImmediate(() => {
+    syncWatchersForBlock({ blockHeight, blockHash, trigger: 'blocknotify' }).catch((err) => {
+      console.warn("[blocknotify] async sync failed:", err?.message || err);
+    });
+  });
   }
   const provided = req.get('x-sovpin-internal-secret') || '';
   let ok = false;
@@ -3717,7 +3729,12 @@ router.post('/internal/blocknotify', async (req, res) => {
   }
   if (!ok) return res.status(403).json({ error: 'Internal endpoint — valid secret required' });
 
-  res.json(await syncWatchersForBlock({ blockHeight, blockHash, trigger: 'blocknotify' }));
+  res.status(202).json({ ok: true, trigger: 'blocknotify' });
+  setImmediate(() => {
+    syncWatchersForBlock({ blockHeight, blockHash, trigger: 'blocknotify' }).catch((err) => {
+      console.warn("[blocknotify] async sync failed:", err?.message || err);
+    });
+  });
 });
 
 router.runWatcherBlockSync = syncWatchersForBlock;

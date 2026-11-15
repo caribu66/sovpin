@@ -16,11 +16,17 @@ export const ledgerKeys = {
   kubo: ['kubo'] as const,
 };
 
-export function usePins() {
+export function usePins(filters?: { from?: string; to?: string }) {
+  const from = filters?.from?.trim() || '';
+  const to = filters?.to?.trim() || '';
   return useQuery({
-    queryKey: ledgerKeys.pins,
+    queryKey: [...ledgerKeys.pins, from, to],
     queryFn: async () => {
-      const r = await api<{ results: any[] }>('/v1/pins');
+      const params = new URLSearchParams();
+      if (from) params.set('from', from);
+      if (to) params.set('to', to);
+      const qs = params.toString() ? `?${params.toString()}` : '';
+      const r = await api<{ results: any[] }>(`/v1/pins${qs}`);
       return r.results || [];
     },
   });
@@ -96,7 +102,9 @@ export function useInvalidateLedger() {
       qc.invalidateQueries({ queryKey: ledgerKeys.apiKeys }),
       qc.invalidateQueries({ queryKey: ledgerKeys.webhooks }),
     ]);
-    await refresh();
+    // Session refresh is not required for list updates; fire-and-forget so
+    // mutations feel instant instead of blocking on an extra round trip.
+    void refresh();
   }, [qc, refresh]);
 }
 
@@ -178,10 +186,22 @@ export function useCreateApiKey() {
 }
 
 export function useRevokeApiKey() {
+  const qc = useQueryClient();
   const invalidate = useInvalidateLedger();
   return useMutation({
     mutationFn: (keyId: string) => api(`/v1/keys/${keyId}`, { method: 'DELETE' }),
-    onSuccess: () => void invalidate(),
+    onMutate: async (keyId) => {
+      await qc.cancelQueries({ queryKey: ledgerKeys.apiKeys });
+      const previous = qc.getQueryData<any[]>(ledgerKeys.apiKeys);
+      qc.setQueryData<any[]>(ledgerKeys.apiKeys, (old) =>
+        (old || []).filter((k) => (k.id ?? k.keyId ?? k.key_id) !== keyId),
+      );
+      return { previous };
+    },
+    onError: (_err, _keyId, ctx) => {
+      if (ctx?.previous) qc.setQueryData(ledgerKeys.apiKeys, ctx.previous);
+    },
+    onSettled: () => void invalidate(),
   });
 }
 

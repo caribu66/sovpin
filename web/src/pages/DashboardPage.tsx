@@ -47,7 +47,13 @@ export default function DashboardPage() {
   const { account, activeApiKeySample, setActiveApiKeySample } = useAuth();
   const navigate = useNavigate();
 
-  const { data: pinsData, isLoading: pinsLoading, error: pinsError, refetch: refetchPins } = usePins();
+  // Table Filters (date range lives here so it can feed the server-side pins query below)
+  const [searchQuery, setSearchQuery] = useState('');
+  const [mimeFilter, setMimeFilter] = useState('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+
+  const { data: pinsData, isLoading: pinsLoading, error: pinsError, refetch: refetchPins } = usePins({ from: dateFrom, to: dateTo });
   const { data: keysData, error: keysError, refetch: refetchKeys } = useApiKeys();
   const { data: webhooksData, refetch: refetchWebhooks } = useWebhooks();
   const { data: webhookEventsCatalog } = useWebhookEvents();
@@ -74,11 +80,6 @@ export default function DashboardPage() {
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
   const [activeJob, setActiveJob] = useState<any>(null);
 
-  // Table Filters
-  const [searchQuery, setSearchQuery] = useState('');
-  const [mimeFilter, setMimeFilter] = useState('all');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Slide-over Upload / Pin Drawer state
@@ -213,7 +214,7 @@ export default function DashboardPage() {
       }
     }
     if (dateFrom || dateTo) {
-      const created = new Date(job.created).getTime();
+      const created = new Date(job.created_at ?? job.created).getTime();
       if (dateFrom) {
         const from = new Date(dateFrom).getTime();
         if (!Number.isNaN(from) && created < from) return false;
@@ -348,6 +349,7 @@ export default function DashboardPage() {
         try {
           await revokeKeyMut.mutateAsync(keyId);
           setStatusBanner({ text: `Revoked API key ${keyId}` });
+          setConfirm(null);
         } catch (e: any) {
           setStatusBanner({ text: e.message, isError: true });
         } finally {
@@ -430,6 +432,7 @@ export default function DashboardPage() {
         try {
           await deleteWebhookMut.mutateAsync(webhookId);
           setStatusBanner({ text: `Deleted webhook ${webhookId}` });
+          setConfirm(null);
         } catch (e: any) {
           setStatusBanner({ text: e.message, isError: true });
         }
@@ -471,6 +474,7 @@ export default function DashboardPage() {
         setBusy('bulk-unpin');
         try {
           await doUnpin(ids);
+          setConfirm(null);
         } finally {
           setBusy('');
         }
@@ -1158,7 +1162,7 @@ ipfs pin remote add --service=sovpin --name="${activeJob.pin.name}" ${activeCid}
                           {formatBytes(job.info.size_bytes)}
                         </td>
                         <td className="py-1.5 px-3 text-[#9CA3AF]">
-                          {formatDateTime(job.created)}
+                          {formatDateTime(job.created_at ?? job.created)}
                         </td>
                         <td className="py-1.5 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="inline-flex items-center gap-2">

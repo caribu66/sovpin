@@ -99,7 +99,7 @@ Cloudflare enforces a **100 MB per-HTTP-request body limit** on Free/Pro zones (
 | `POST` | `/v1/webhooks` | Session or Key | Register an HTTPS webhook URL with event subscriptions (`pin.created`, `pin.deleted`, `watcher.created`, `watcher.synced`, `watcher.repaired`). Returns a `whsec_...` HMAC signing secret (shown once). |
 | `DELETE` | `/v1/webhooks/:webhookId` | Session or Key | Delete a registered webhook. |
 | `GET` | `/v1/webhooks/:webhookId/deliveries` | Session or Key | List recent webhook delivery attempts with status, HTTP response code, and retry count. |
-| `GET` | `/v1/pins` | `pin:read` | IPFS Pinning Service API: list pinned objects for the tenant (supports `?status=` and `?cid=`). |
+| `GET` | `/v1/pins` | `pin:read` | IPFS Pinning Service API: list pinned objects for the tenant (supports `?status=`, `?cid=`, `?from=` and `?to=` as inclusive ISO 8601 / `YYYY-MM-DD` bounds on `created_at`; a date-only `to` covers the whole day). |
 | `POST` | `/v1/pins` | `pin:write` | IPFS Pinning Service API: pin an existing CID on Kubo and build a Verus `URLRef` descriptor (without a byte-hash commitment, since raw bytes were not uploaded through SovPin). |
 | `POST` | `/v1/pin/upload` | `pin:write` | Upload JSON, text, or Base64 payload to Kubo, compute SHA-256, and return `DataDescriptor(CrossChainDataRef(URLRef))`. |
 | `POST` | `/v1/pin/upload/stream` | `pin:write` | Stream a `multipart/form-data` file (`file` field + optional `meta` JSON field and optional `?vdxfUri=`) to Kubo without Base64 buffering. Enforces quota and `MAX_SINGLE_UPLOAD_BYTES`. |
