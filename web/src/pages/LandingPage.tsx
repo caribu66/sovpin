@@ -264,7 +264,7 @@ const { identity, blockHeight, dataDescriptors, references } = await res.json();
           <span className="uppercase tracking-wider text-[#9CA3AF]">
             UK Commercial Tiers (SovPin Technologies Ltd · 20% UK VAT &amp; VerusPay VRSC)
           </span>
-          <span className="text-[#10B981]">Spot Reference: 1 VRSC = £3.00 GBP</span>
+          <span className="text-[#10B981]">Spot Reference: 1 VRSC = £{Number(publicInfo?.gbpPerVrscRate || 3.0).toFixed(2)} GBP</span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-[#22262E] border border-[#22262E] bg-[#111317] font-mono text-xs tabular-nums">
@@ -272,7 +272,8 @@ const { identity, blockHeight, dataDescriptors, references } = await res.json();
             const vatPence = Math.round(Number(p.priceGbpPence || 0) / 5);
             const totalPence = Number(p.priceGbpPence || 0) + vatPence;
             const totalIncVat = (totalPence / 100).toFixed(2);
-            const totalVrsc = p.priceVrsc > 0 ? (totalPence / 100 / 3.0).toFixed(2) : '0.00';
+            const liveRate = Number(publicInfo?.gbpPerVrscRate || 3.0);
+            const totalVrsc = p.priceVrsc > 0 ? (Math.round((totalPence / 100 / liveRate) * 1e8) / 1e8).toFixed(4) : '0.0000';
             return (
               <div key={p.id} className="p-5 flex flex-col justify-between space-y-4">
                 <div className="space-y-3">

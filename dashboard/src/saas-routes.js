@@ -405,6 +405,21 @@ function serializePinningServiceJob(pinRow) {
   };
 }
 
+// Post-pin atomic verify: confirm Kubo actually serves the bytes we hashed
+// locally. On size/sha mismatch the CID is unpinned (quarantine) and the
+// upload is rejected instead of ledgered as verified.
+async function verifyPinnedContentOrQuarantine(cid, sizeBytes, sha256Hex) {
+  const v = await kuboVerifyCid(cid, sizeBytes, sha256Hex);
+  if (!v.reachable || !v.sizeMatches || (sha256Hex && !v.sha256Matches)) {
+    try { await kuboPinRm(cid); } catch {}
+    const err = new Error('Pinned content failed post-pin verification (size/sha mismatch)');
+    err.status = 502;
+    err.reason = 'PIN_VERIFY_FAILED';
+    throw err;
+  }
+  return v;
+}
+
 async function createAndStorePinReceipt(pinRow) {
   try {
     const info = await getDaemonInfo().catch(() => null);
@@ -793,6 +808,13 @@ router.post('/auth/verify', async (req, res) => {
     }
 
     const idInfo = await getIdentity(ch.i_address);
+    // Revoke-between-challenge-and-verify: re-check on-chain status after
+    // signature verification, not just at challenge issue time.
+    if (idInfo?.status && idInfo.status !== 'active') {
+      return res.status(403).json({
+        error: `VerusID '${ch.friendly_name}' is ${idInfo.status} (must be active on-chain)`,
+      });
+    }
     const primaryAddress = (idInfo?.identity?.primaryaddresses || [])[0] || null;
 
     const tenant = upsertTenant({
@@ -1026,11 +1048,19 @@ router.post('/auth/login-consent/callback', async (req, res) => {
       'INSERT INTO sessions (token, i_address, expires_at, created_at) VALUES (?, ?, ?, ?)'
     ).run(hashToken(sessionToken), tenant.i_address, sessionExpiresAt, new Date().toISOString());
 
-    db.prepare(
+    // Atomic claim: only one concurrent callback can transition pending->verified.
+    const claimed = db.prepare(
       `UPDATE login_consent_sessions
        SET status = 'verified', user_i_address = ?, user_friendly_name = ?, session_token = ?, resolved_at = ?
-       WHERE challenge_id = ?`
+       WHERE challenge_id = ? AND status = 'pending'`
     ).run(iAddress, friendlyName, sessionToken, new Date().toISOString(), challengeId);
+    if (claimed.changes === 0) {
+      // Lost the race: another callback already claimed it, or it expired.
+      const again = db.prepare('SELECT status FROM login_consent_sessions WHERE challenge_id = ?').get(challengeId);
+      if (again?.status === 'verified') return res.json({ success: true });
+      db.prepare('DELETE FROM sessions WHERE token = ?').run(hashToken(sessionToken));
+      return res.status(409).json({ error: 'Login consent already resolved' });
+    }
 
     res.json({ success: true });
   } catch (err) {
@@ -1096,17 +1126,25 @@ router.get('/account', authenticate(), (req, res) => {
 router.patch('/account/billing-profile', authenticate(), (req, res) => {
   const { ukCompanyName, ukVatNumber, billingCountry } = req.body || {};
   const db = getDb();
-  const hasVat = Boolean(ukVatNumber && String(ukVatNumber).trim());
+  const cleanVat = ukVatNumber ? String(ukVatNumber).trim().toUpperCase().slice(0, 20) : '';
+  const cleanCountry = billingCountry ? String(billingCountry).trim().toUpperCase().slice(0, 2) : 'GB';
+  if (cleanCountry && !/^[A-Z]{2}$/.test(cleanCountry)) {
+    return res.status(400).json({ error: 'billingCountry must be a 2-letter ISO code' });
+  }
+  if (cleanVat && !/^[A-Z0-9-]{2,20}$/.test(cleanVat)) {
+    return res.status(400).json({ error: 'Invalid VAT number format' });
+  }
+  const hasVat = Boolean(cleanVat);
   const now = new Date().toISOString();
   db.prepare(
     `UPDATE tenants
      SET uk_company_name = ?, uk_vat_number = ?, uk_vat_registered = ?, billing_country = ?, updated_at = ?
      WHERE i_address = ?`
   ).run(
-    ukCompanyName ? String(ukCompanyName).trim() : null,
-    hasVat ? String(ukVatNumber).trim().toUpperCase() : null,
+    ukCompanyName ? String(ukCompanyName).trim().slice(0, 120) : null,
+    hasVat ? cleanVat : null,
     hasVat ? 1 : 0,
-    billingCountry ? String(billingCountry).trim().toUpperCase() : 'GB',
+    cleanCountry || 'GB',
     now,
     req.tenant.i_address
   );
@@ -1223,7 +1261,7 @@ router.post('/keys', authenticate(), (req, res) => {
     });
   }
 
-  const name = String(req.body?.name || 'Default Verus App Key').trim();
+  const name = String(req.body?.name || 'Default Verus App Key').trim().slice(0, 80) || 'Default Verus App Key';
   const ALLOWED_SCOPES = new Set(['pin:read', 'pin:write', 'vdxf:build', 'webhook:manage', 'watcher:manage']);
   const requestedScopes = String(req.body?.scopes || 'pin:read,pin:write,vdxf:build')
     .split(',')
@@ -1342,6 +1380,7 @@ router.post('/webhooks', authenticate(), async (req, res) => {
   const webhookId = `wh_${crypto.randomBytes(8).toString('hex')}`;
   const now = new Date().toISOString();
   const db = getDb();
+  try {
   db.prepare(
     `INSERT INTO webhooks (webhook_id, i_address, url, secret, events, active, created_at)
      VALUES (?, ?, ?, ?, ?, 1, ?)`
@@ -1363,6 +1402,10 @@ router.post('/webhooks', authenticate(), async (req, res) => {
     secret, // Shown once!
     createdAt: now,
   });
+  } catch (err) {
+    console.error('[webhook] create failed:', err instanceof Error ? err.message : err);
+    res.status(500).json({ error: 'Failed to create webhook' });
+  }
 });
 
 router.delete('/webhooks/:webhookId', authenticate(), (req, res) => {
@@ -1408,7 +1451,14 @@ router.get('/webhooks/:webhookId/deliveries', authenticate(), (req, res) => {
 // bounds on created_at; see src/pin-date-range.js for bound semantics).
 router.get('/pins', authenticate('pin:read'), (req, res) => {
   const db = getDb();
-  const statusFilter = req.query.status ? String(req.query.status) : 'pinned';
+  const ALLOWED_PIN_STATUS = new Set(['pinned', 'unpinned', 'blocked_uk_osa', 'queued', 'failed']);
+  const rawStatus = req.query.status ? String(req.query.status) : 'pinned';
+  if (!ALLOWED_PIN_STATUS.has(rawStatus)) {
+    return res.status(400).json({
+      error: { reason: 'INVALID_STATUS', details: `Unknown status '${rawStatus}'` },
+    });
+  }
+  const statusFilter = rawStatus;
   const cidFilter = req.query.cid ? String(req.query.cid).trim() : null;
   const { fromBound, toBound, error } = resolvePinDateRange(req.query);
   if (error) {
@@ -1617,6 +1667,7 @@ router.post(
           },
         });
       }
+      await verifyPinnedContentOrQuarantine(uploaded.cid, uploaded.sizeBytes, uploaded.sha256Hex);
 
       const row = await createAndStorePinReceipt(
         upsertActivePinRecord({
@@ -1754,6 +1805,7 @@ router.post(
       const stagingDir = getChunkedUploadDir(uploadId);
       fs.mkdirSync(stagingDir, { recursive: true });
 
+      try {
       db.prepare(
         `INSERT INTO chunked_uploads (upload_id, i_address, filename, mime_type, total_size_bytes, vdxf_uri, meta_json, received_parts_json, status, expires_at, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, '{}', 'open', ?, ?)`
@@ -1768,6 +1820,10 @@ router.post(
         expiresAt,
         now
       );
+      } catch (dbErr) {
+        try { fs.rmSync(stagingDir, { recursive: true, force: true }); } catch {}
+        throw dbErr;
+      }
 
       res.status(201).json({
         uploadId,
@@ -1951,6 +2007,24 @@ router.post(
         vdxfId = vdxfRes?.vdxfid || null;
       }
 
+      // TOCTOU guard: re-hash each staged part and compare to the
+      // sha256 recorded at PUT time. A part overwritten between PUT and
+      // complete changes the assembled bytes without changing part count.
+      for (const num of partNumbers) {
+        const partPath = path.join(stagingDir, `part-${String(num).padStart(5, '0')}.bin`);
+        const expected = partsMap[String(num)]?.sha256Hex;
+        const h = crypto.createHash('sha256');
+        const buf = fs.readFileSync(partPath);
+        h.update(buf);
+        if (!expected || h.digest('hex') !== String(expected).toLowerCase()) {
+          return res.status(409).json({
+            error: {
+              reason: 'PART_MODIFIED',
+              details: `Part ${num} changed after upload; re-upload the part and retry complete`,
+            },
+          });
+        }
+      }
       const fullHash = crypto.createHash('sha256');
       async function* concatPartsGenerator() {
         for (const num of partNumbers) {
@@ -1980,6 +2054,7 @@ router.post(
           },
         });
       }
+      await verifyPinnedContentOrQuarantine(added.cid, totalBytes, sha256Hex);
 
       let parsedMeta = {};
       try {
@@ -2130,6 +2205,7 @@ router.post('/pin/upload', authenticate('pin:write'), enforceUploadRateLimit, as
         },
       });
     }
+    await verifyPinnedContentOrQuarantine(cid, sizeBytes, sha256Hex);
 
     const createdRow = await createAndStorePinReceipt(
       upsertActivePinRecord({
@@ -2330,6 +2406,7 @@ router.post('/pins/:requestid/verify', authenticate('pin:read'), async (req, res
 
 // POST /v1/pins/:requestid/receipt — Issue or refresh a Verus-signed cryptographic pin receipt
 router.post('/pins/:requestid/receipt', authenticate('pin:read'), async (req, res) => {
+  try {
   const db = getDb();
   const row = db
     .prepare('SELECT * FROM pins WHERE request_id = ? AND i_address = ?')
@@ -2376,6 +2453,12 @@ router.post('/pins/:requestid/receipt', authenticate('pin:read'), async (req, re
     verifiedOnChain,
     receipt,
   });
+  } catch (err) {
+    console.error('[pin] receipt failed:', err instanceof Error ? err.message : err);
+    res.status(502).json({
+      error: { reason: 'RECEIPT_FAILED', details: 'Failed to issue pin receipt' },
+    });
+  }
 });
 
 // POST /v1/pins/gc — Sweep unreferenced unpinned/blocked CIDs from Kubo and run repo GC
@@ -3100,6 +3183,23 @@ router.get('/resolve/:identity/content', async (req, res) => {
 });
 
 // ── 7. UK Commercial Billing (GBP + 20% UK VAT + VerusPay On-Chain Invoices) ──
+// Single source of truth: integer pence in, integer satoshi out. Never float.
+function quoteForPlan(plan) {
+  const subtotalPence = plan.priceGbpPence;
+  const vatPence = Math.round(subtotalPence / 5); // 20% = /5, integer math
+  const totalPence = subtotalPence + vatPence;
+  const spotRateGbp = config.gbpPerVrscRate;
+  const amountSatoshi = Math.round((totalPence / 100 / spotRateGbp) * 1e8);
+  const amountVrsc = amountSatoshi / 1e8;
+  return { subtotalPence, vatPence, totalPence, spotRateGbp, amountSatoshi, amountVrsc };
+}
+
+router.get('/billing/quote', authenticate(), (req, res) => {
+  const plan = config.PLANS[String(req.query.planId || 'indie')];
+  if (!plan) return res.status(400).json({ error: 'Invalid planId' });
+  res.json({ planId: plan.id, ...quoteForPlan(plan), vatRate: config.ukCompany.vatRate });
+});
+
 router.get('/billing/invoices', authenticate(), (req, res) => {
   const db = getDb();
   const invoices = db
@@ -3134,13 +3234,8 @@ router.post('/billing/checkout', authenticate(), (req, res) => {
     });
   }
 
-  const subtotalPence = plan.priceGbpPence;
+  const { subtotalPence, vatPence, totalPence, spotRateGbp, amountSatoshi, amountVrsc } = quoteForPlan(plan);
   const vatRate = config.ukCompany.vatRate; // 20% UK VAT
-  // Integer pence math: 20% = divide by 5, avoid float multiplication.
-  const vatPence = Math.round(subtotalPence / 5);
-  const totalPence = subtotalPence + vatPence;
-  const spotRateGbp = config.gbpPerVrscRate;
-  const amountVrsc = Number((totalPence / 100 / spotRateGbp).toFixed(4));
 
   const invoiceId = `inv_${crypto.randomBytes(8).toString('hex')}`;
   const datePart = now.slice(0, 10).replace(/-/g, '');
@@ -3152,8 +3247,8 @@ router.post('/billing/checkout', authenticate(), (req, res) => {
     `INSERT INTO invoices (
       invoice_id, invoice_number, i_address, plan_id, payment_rail,
       subtotal_gbp_pence, vat_rate, vat_gbp_pence, total_gbp_pence,
-      vrsc_spot_gbp, amount_vrsc, receiving_identity, veruspay_memo, status, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`
+      vrsc_spot_gbp, amount_vrsc, amount_vrsc_sat, receiving_identity, veruspay_memo, status, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`
   ).run(
     invoiceId,
     invoiceNumber,
@@ -3166,6 +3261,7 @@ router.post('/billing/checkout', authenticate(), (req, res) => {
     totalPence,
     spotRateGbp,
     amountVrsc,
+    amountSatoshi,
     config.sovpinReceivingIdentity,
     veruspayMemo,
     now
@@ -3263,6 +3359,9 @@ async function verifyVerusPaySettlementTx(invoice, txid) {
     }
   }
   const expectedAmount = Number(invoice.amount_vrsc);
+  const expectedSatoshi = Number.isFinite(Number(invoice.amount_vrsc_sat)) && Number(invoice.amount_vrsc_sat) > 0
+    ? Math.round(Number(invoice.amount_vrsc_sat))
+    : Math.round(expectedAmount * 1e8);
   let amountMatched = false;
 
   const vouts = Array.isArray(tx.vout) ? tx.vout : [];
@@ -3277,6 +3376,14 @@ async function verifyVerusPaySettlementTx(invoice, txid) {
       !recipient ||
       addresses.includes(recipient) ||
       (recipientIAddress && addresses.includes(recipientIAddress));
+    // Satoshi-exact first: avoids IEEE-754 float dust on arbitrary spot rates.
+    const voutSat = vout?.valueSat !== undefined
+      ? Math.round(Number(vout.valueSat))
+      : (vout?.value !== undefined ? Math.round(Number(vout.value) * 1e8) : NaN);
+    if (addressMatched && Number.isFinite(voutSat) && voutSat === expectedSatoshi) {
+      amountMatched = true;
+      break;
+    }
     const voutAmount = Number(
       vout?.value !== undefined
         ? vout.value
@@ -3726,7 +3833,9 @@ router.post('/billing/stripe-webhook', async (req, res) => {
 // docker network, so the daemon cannot push to this host; the poller calls
 // the same core with trigger 'block-poll').
 async function syncWatchersForBlock({ blockHeight = 0, blockHash = '', trigger = 'blocknotify' } = {}) {
-  const cleanHash = String(blockHash || '').trim();
+  const cleanHeight = Number.isFinite(Number(blockHeight)) ? Math.max(0, Math.floor(Number(blockHeight))) : 0;
+  blockHeight = cleanHeight;
+  const cleanHash = String(blockHash || '').trim().slice(0, 128);
   const db = getDb();
   const watchers = db
     .prepare("SELECT watcher_id, target_i_address, i_address FROM cmm_watchers WHERE status = 'active'")
@@ -3820,8 +3929,13 @@ router.post('/internal/blocknotify', async (req, res) => {
   }
   if (configuredSecret && !ok) return res.status(403).json({ error: 'Internal endpoint — valid secret required' });
 
-  const result = await syncWatchersForBlock({ blockHeight, blockHash, trigger: 'blocknotify' });
-  return res.status(200).json(result);
+  try {
+    const result = await syncWatchersForBlock({ blockHeight, blockHash, trigger: 'blocknotify' });
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error('[blocknotify] sync failed:', err instanceof Error ? err.message : err);
+    return res.status(502).json({ error: 'Watcher sync failed' });
+  }
 });
 
 router.runWatcherBlockSync = syncWatchersForBlock;

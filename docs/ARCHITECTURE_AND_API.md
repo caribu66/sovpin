@@ -125,6 +125,7 @@ Cloudflare enforces a **100 MB per-HTTP-request body limit** on Free/Pro zones (
 | `GET` | `/v1/resolve/:identity` | `pin:read` | Resolve a VerusID’s on-chain `contentmultimap` (optionally filtered by `?vdxf=`), decode `URLRef` and CID entries, and report Kubo pin status + gateway URLs. |
 | `GET` | `/v1/resolve/:identity/content` | Public | Resolve the latest IPFS CID stored under a VerusID’s `contentmultimap` (optionally filtered by `?vdxf=`) and `302` redirect to `https://ipfs.sovpin.com/ipfs/<cid>` (or return JSON when `?format=json`). |
 | `GET` | `/v1/billing/invoices` | Session or Key | List UK VAT & VerusPay invoices for the tenant. |
+| `GET` | `/v1/billing/quote` | Session or Key | Server-side plan quote: integer pence + 20% VAT with satoshi-exact VRSC (`amount_vrsc_sat`). |
 | `POST` | `/v1/billing/checkout` | Session or Key | Select a plan (`builder`, `indie`, `studio`) and generate a UK VAT invoice (`20%` VAT) payable via VerusPay (`VRSC`) or Stripe UK (`GBP £`). |
 | `POST` | `/v1/billing/invoices/:invoiceId/settle` | Session or Key | Settle an open invoice (verifying an on-chain `txid` when supplied) and upgrade the tenant’s plan. |
 | `POST` | `/v1/billing/stripe-webhook` | Stripe HMAC | Handle `checkout.session.completed` webhook events (verifies `Stripe-Signature` HMAC-SHA256 when `STRIPE_WEBHOOK_SECRET` is set). |

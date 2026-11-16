@@ -294,6 +294,18 @@ export function usePlans() {
   });
 }
 
+export function useSpotRate() {
+  return useQuery({
+    queryKey: ['spot-rate'] as const,
+    queryFn: async () => {
+      const info = await api<{ gbpPerVrscRate: number }>('/v1/public/info');
+      const r = Number(info.gbpPerVrscRate);
+      return Number.isFinite(r) && r > 0 ? r : 3.0;
+    },
+    staleTime: 60_000,
+  });
+}
+
 export function useInvoices() {
   return useQuery({
     queryKey: ['invoices'] as const,

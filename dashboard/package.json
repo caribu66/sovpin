@@ -8,7 +8,7 @@
     "dashboard": "node server.js",
     "test": "node --test test/*.test.js",
     "test:integration": "node --test test/saas.test.js",
-    "test:unit": "node --test test/verus-storage.test.js test/docs-reality.test.js test/client-ip.test.js test/pins-date-filter.test.js test/secret-box.test.js test/outbound-url-safety.test.js test/spa-fallback.test.js test/edge-security.test.js",
+    "test:unit": "node --test test/verus-storage.test.js test/docs-reality.test.js test/client-ip.test.js test/pins-date-filter.test.js test/secret-box.test.js test/outbound-url-safety.test.js test/spa-fallback.test.js test/edge-security.test.js test/billing-ops-fixes.test.js",
     "build:web": "cd ../web && npm run build"
   },
   "dependencies": {

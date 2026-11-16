@@ -34,6 +34,11 @@ if res != [('ok',)]:
 s.close(); d.close()
 EOF
 
+if [ ! -f "$RECIPIENT_FILE" ]; then
+  echo "Backup recipient not found: $RECIPIENT_FILE (set SOVPIN_BACKUP_RECIPIENT)" >&2
+  rm -f "$SNAP"
+  exit 2
+fi
 gzip -c "$SNAP" | age -r "$(cat "$RECIPIENT_FILE")" -o "$OUT"
 chmod 600 "$OUT"
 rm -f "$SNAP"

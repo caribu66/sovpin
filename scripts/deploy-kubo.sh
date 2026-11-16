@@ -35,7 +35,11 @@ echo "[3/4] Verifying Kubo..."
 ssh -i "$SSH_KEY" "$MACBOOK" 'docker ps --format "  {{.Names}}: {{.Status}} {{.Ports}}" | grep kubo'
 
 echo "[4/4] Testing endpoints..."
-curl -sf -X POST -m 5 "http://$TAILSCALE_IP:5001/api/v0/version" | jq -r '"  RPC: \(.Version) (\(.Commit))"'
+if command -v jq >/dev/null 2>&1; then
+  curl -sf -X POST -m 5 "http://$TAILSCALE_IP:5001/api/v0/version" | jq -r '"  RPC: \(.Version) (\(.Commit))"'
+else
+  curl -sf -X POST -m 5 "http://$TAILSCALE_IP:5001/api/v0/version" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(f"  RPC: {d.get(\"Version\")} ({d.get(\"Commit\")})")'
+fi
 curl -sf -m 5 "http://$TAILSCALE_IP:8080/ipfs/QmdJN78YiEAzh8xQ59YMsMW635cXtr24RDSz6zuJr1NyFk" -o /dev/null -w "  Gateway: HTTP %{http_code}\n"
 
 echo ""

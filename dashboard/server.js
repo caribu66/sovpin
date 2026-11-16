@@ -91,7 +91,7 @@ const RULESET_ID = config.rulesetId;
 const ZONE = config.zone;
 
 app.use(express.json({
-  limit: '50mb',
+  limit: '35mb',
   verify: (req, _res, buf) => {
     // Only buffer raw body string for endpoints that require cryptographic signature verification (Stripe)
     if (req.originalUrl?.includes('stripe-webhook') || req.url?.includes('stripe-webhook')) {
@@ -99,7 +99,7 @@ app.use(express.json({
     }
   },
 }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '35mb' }));
 // Serve the production React frontend (sovpin/web/dist) at the root.
 const webDist = path.join(__dirname, '..', 'web', 'dist');
 const fs = require('node:fs');
@@ -580,5 +580,14 @@ if (require.main === module) {
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
   process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 }
+
+// Fail-safe: Express 4 does not catch async throw after response starts.
+// Log and keep serving instead of crashing the process.
+process.on('unhandledRejection', (reason) => {
+  console.error('[SovPin] unhandledRejection:', reason instanceof Error ? reason.stack || reason.message : reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[SovPin] uncaughtException:', err instanceof Error ? err.stack || err.message : err);
+});
 
 module.exports = app;

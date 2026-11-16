@@ -1,0 +1,10 @@
+[Unit]
+Description=SovPin encrypted SQLite backup (daily)
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+Unit=sovpin-backup.service
+
+[Install]
+WantedBy=timers.target

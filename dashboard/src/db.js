@@ -88,8 +88,6 @@ function getDb() {
     CREATE INDEX IF NOT EXISTS idx_pins_cid ON pins(cid);
     CREATE INDEX IF NOT EXISTS idx_pins_i_address ON pins(i_address);
     CREATE INDEX IF NOT EXISTS idx_auth_challenges_expires ON auth_challenges(expires_at);
-    CREATE INDEX IF NOT EXISTS idx_login_consent_poll_token ON login_consent_sessions(poll_token);
-    CREATE INDEX IF NOT EXISTS idx_chunked_uploads_status_expires ON chunked_uploads(status, expires_at);
 
     CREATE TABLE IF NOT EXISTS cmm_watchers (
       watcher_id TEXT PRIMARY KEY,
@@ -148,6 +146,7 @@ function getDb() {
       resolved_at TEXT
     );
 
+    CREATE INDEX IF NOT EXISTS idx_login_consent_poll_token ON login_consent_sessions(poll_token);
     CREATE INDEX IF NOT EXISTS idx_lc_status_expires ON login_consent_sessions(status, expires_at);
 
     CREATE TABLE IF NOT EXISTS audit_logs (
@@ -202,6 +201,8 @@ function getDb() {
       FOREIGN KEY (webhook_id) REFERENCES webhooks(webhook_id) ON DELETE CASCADE
     );
 
+    CREATE INDEX IF NOT EXISTS idx_chunked_uploads_status_expires ON chunked_uploads(status, expires_at);
+    CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
     CREATE INDEX IF NOT EXISTS idx_sessions_i_address ON sessions(i_address);
     CREATE INDEX IF NOT EXISTS idx_api_keys_i_address ON api_keys(i_address);
     CREATE INDEX IF NOT EXISTS idx_cmm_watchers_i_address ON cmm_watchers(i_address);
@@ -219,6 +220,13 @@ function getDb() {
   if (!pinColumns.some((column) => column.name === 'receipt_json')) {
     db.exec('ALTER TABLE pins ADD COLUMN receipt_json TEXT');
   }
+  const invoiceColumns = db.prepare('PRAGMA table_info(invoices)').all();
+  if (!invoiceColumns.some((column) => column.name === 'amount_vrsc_sat')) {
+    db.exec('ALTER TABLE invoices ADD COLUMN amount_vrsc_sat INTEGER NOT NULL DEFAULT 0');
+  }
+  try {
+    db.exec('UPDATE invoices SET amount_vrsc_sat = CAST(ROUND(amount_vrsc * 100000000) AS INTEGER) WHERE amount_vrsc_sat = 0 AND amount_vrsc > 0');
+  } catch {}
 
   dbInstance = db;
   return db;

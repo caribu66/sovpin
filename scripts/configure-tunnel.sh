@@ -62,7 +62,11 @@ echo "[2/3] Updating tunnel ingress..."
 }'
 
 echo "[3/3] Verifying..."
-"$CF_BIN" tunnels config get "$TUNNEL_ID" | jq -r '.config.ingress[] | "  \(.hostname // "(catch-all)") → \(.service)"'
+if command -v jq >/dev/null 2>&1; then
+  "$CF_BIN" tunnels config get "$TUNNEL_ID" | jq -r '.config.ingress[] | "  \(.hostname // "(catch-all)") → \(.service)"'
+else
+  "$CF_BIN" tunnels config get "$TUNNEL_ID" | python3 -c 'import json,sys; d=json.load(sys.stdin); [print(f"  {i.get(\"hostname\",\"(catch-all)\")} → {i.get(\"service\")}\") for i in d.get("config",{}).get("ingress",[])]'
+fi
 
 echo ""
 echo "=== Tunnel configured ==="

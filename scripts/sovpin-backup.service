@@ -1,0 +1,6 @@
+[Unit]
+Description=SovPin encrypted SQLite backup (oneshot)
+
+[Service]
+Type=oneshot
+ExecStart=%h/src/sovpin/scripts/sovpin-backup.sh
