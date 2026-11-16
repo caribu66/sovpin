@@ -8,6 +8,7 @@ const config = require('./config');
 const { resolvePinDateRange } = require('./pin-date-range');
 const {
   getDb,
+  withImmediateTransaction,
   hashToken,
   upsertTenant,
   getTenantUsage,
@@ -761,6 +762,14 @@ router.post('/auth/verify', async (req, res) => {
       return res.status(400).json({ error: 'Challenge expired' });
     }
 
+    // Atomically claim challenge before verification to prevent concurrent replay attacks
+    const claimResult = db
+      .prepare('UPDATE auth_challenges SET used = 1 WHERE challenge_id = ? AND used = 0')
+      .run(ch.challenge_id);
+    if (claimResult.changes === 0) {
+      return res.status(400).json({ error: 'Challenge invalid or already used' });
+    }
+
     // Throttle verification attempts per identity (each attempt is a live
     // verifysignature RPC against the daemon).
     if (!enforceIdentityAuthLimit(req, res, 'verify', ch.i_address, 20)) return;
@@ -775,15 +784,13 @@ router.post('/auth/verify', async (req, res) => {
     const isVerified =
       verified === true ||
       verified?.signaturestatus === 'verified' ||
-      (verified?.address === ch.i_address && Boolean(verified?.hash));
+      (verified?.valid === true && (verified?.address === ch.i_address || verified?.address === ch.friendly_name));
 
     if (!isVerified) {
       return res.status(401).json({
         error: 'Verus daemon verifysignature rejected signature for this VerusID',
       });
     }
-
-    db.prepare('UPDATE auth_challenges SET used = 1 WHERE challenge_id = ?').run(ch.challenge_id);
 
     const idInfo = await getIdentity(ch.i_address);
     const primaryAddress = (idInfo?.identity?.primaryaddresses || [])[0] || null;
@@ -1041,7 +1048,12 @@ router.get('/auth/login-consent/poll', (req, res) => {
   const row = db
     .prepare('SELECT * FROM login_consent_sessions WHERE challenge_id = ?')
     .get(challengeId);
-  if (!row || row.poll_token !== pollToken) {
+  if (!row) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+  const pollBuf = Buffer.from(pollToken);
+  const rowBuf = Buffer.from(row.poll_token || '');
+  if (pollBuf.length !== rowBuf.length || !crypto.timingSafeEqual(pollBuf, rowBuf)) {
     return res.status(404).json({ error: 'Session not found' });
   }
   // Per-session poll throttle: the poll token is unguessable, but this caps
@@ -1052,11 +1064,15 @@ router.get('/auth/login-consent/poll', (req, res) => {
     row.status = 'expired';
   }
   if (row.status === 'verified') {
-    // Browser transport: HttpOnly cookie. The body token stays for compat.
-    if (row.session_token) setSessionCookie(req, res, row.session_token);
+    const sessionToken = row.session_token;
+    // Redact plaintext session token on delivery so it does not linger in SQLite
+    if (sessionToken) {
+      db.prepare(`UPDATE login_consent_sessions SET session_token = NULL WHERE challenge_id = ?`).run(challengeId);
+      setSessionCookie(req, res, sessionToken);
+    }
     return res.json({
       status: 'verified',
-      sessionToken: row.session_token,
+      sessionToken,
       userIAddress: row.user_i_address,
       userFriendlyName: row.user_friendly_name,
     });
@@ -1102,41 +1118,48 @@ router.patch('/account/billing-profile', authenticate(), (req, res) => {
 
 // UK GDPR Right-to-Erasure / Tenant Offboarding: unpins unreferenced CIDs and deletes tenant data
 router.delete('/account', authenticate(), async (req, res) => {
-  const db = getDb();
-  const iAddress = req.tenant.i_address;
-  const friendlyName = req.tenant.friendly_name;
-  const activePins = db
-    .prepare(`SELECT DISTINCT cid FROM pins WHERE i_address = ? AND status = 'pinned'`)
-    .all(iAddress);
+  try {
+    const db = getDb();
+    const iAddress = req.tenant.i_address;
+    const friendlyName = req.tenant.friendly_name;
+    const activePins = db
+      .prepare(`SELECT DISTINCT cid FROM pins WHERE i_address = ? AND status = 'pinned'`)
+      .all(iAddress);
 
-  db.prepare(`UPDATE pins SET status = 'unpinned', unpinned_at = ? WHERE i_address = ? AND status = 'pinned'`).run(
-    new Date().toISOString(),
-    iAddress
-  );
-
-  let unpinnedFromKubo = 0;
-  for (const row of activePins) {
-    if (countActivePinReferences(row.cid) === 0) {
-      const removed = await kuboPinRm(row.cid);
-      if (removed) unpinnedFromKubo++;
+    let unpinnedFromKubo = 0;
+    for (const row of activePins) {
+      if (countActivePinReferences(row.cid) <= 1) {
+        const removed = await kuboPinRm(row.cid).catch(() => false);
+        if (removed) unpinnedFromKubo++;
+      }
     }
+
+    withImmediateTransaction(db, () => {
+      db.prepare(`UPDATE pins SET status = 'unpinned', unpinned_at = ? WHERE i_address = ? AND status = 'pinned'`).run(
+        new Date().toISOString(),
+        iAddress
+      );
+      db.prepare('DELETE FROM tenants WHERE i_address = ?').run(iAddress);
+    });
+
+    writeAuditLog({
+      iAddress,
+      actorType: req.authType || 'tenant',
+      action: 'account.delete_gdpr',
+      targetId: iAddress,
+      details: { friendlyName, unpinnedFromKubo },
+      ipAddress: getClientIp(req),
+    });
+
+    clearSessionCookie(res);
+    res.json({
+      ok: true,
+      deletedTenant: iAddress,
+      unpinnedFromKubo,
+    });
+  } catch (err) {
+    res.status(500).json({ error: { reason: 'ACCOUNT_DELETE_FAILED', details: err.message } });
   }
-
-  writeAuditLog({
-    iAddress,
-    actorType: req.authType || 'tenant',
-    action: 'account.delete_gdpr',
-    targetId: iAddress,
-    details: { friendlyName, unpinnedFromKubo },
-    ipAddress: getClientIp(req),
-  });
-
-  db.prepare('DELETE FROM tenants WHERE i_address = ?').run(iAddress);
-  res.json({
-    ok: true,
-    deletedTenant: iAddress,
-    unpinnedFromKubo,
-  });
 });
 
 // GET /v1/audit-logs — Tenant security & pin lifecycle audit trail
@@ -1842,6 +1865,7 @@ router.put('/pin/upload/chunked/:uploadId/part', authenticate('pin:write'), asyn
       sha256Hex,
     });
   } catch (error) {
+    try { fs.rmSync(partPath, { force: true }); } catch (_) {}
     const status = Number(error.status) || 500;
     res.status(status).json({
       error: {
@@ -2267,35 +2291,41 @@ router.get('/pins/:requestid', authenticate('pin:read'), (req, res) => {
 
 // POST /v1/pins/:requestid/verify — Verify Kubo pin health, byte size, and SHA-256 integrity
 router.post('/pins/:requestid/verify', authenticate('pin:read'), async (req, res) => {
-  const db = getDb();
-  const row = db
-    .prepare('SELECT * FROM pins WHERE request_id = ? AND i_address = ?')
-    .get(req.params.requestid, req.tenant.i_address);
-  if (!row) {
-    return res.status(404).json({
-      error: { reason: 'NOT_FOUND', details: 'Pin request ID not found' },
+  try {
+    const db = getDb();
+    const row = db
+      .prepare('SELECT * FROM pins WHERE request_id = ? AND i_address = ?')
+      .get(req.params.requestid, req.tenant.i_address);
+    if (!row) {
+      return res.status(404).json({
+        error: { reason: 'NOT_FOUND', details: 'Pin request ID not found' },
+      });
+    }
+
+    const verification = await kuboVerifyCid(
+      row.cid,
+      row.size_bytes,
+      row.sha256_verified ? row.sha256_hex : null
+    );
+    const ok =
+      verification.kuboPinned &&
+      verification.reachable &&
+      verification.sizeMatches &&
+      verification.sha256Matches;
+
+    res.json({
+      ok,
+      requestid: row.request_id,
+      cid: row.cid,
+      expectedSizeBytes: row.size_bytes,
+      expectedSha256Hex: row.sha256_verified ? row.sha256_hex : null,
+      ...verification,
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: { reason: 'VERIFY_FAILED', details: err.message || 'Verification failed' },
     });
   }
-
-  const verification = await kuboVerifyCid(
-    row.cid,
-    row.size_bytes,
-    row.sha256_verified ? row.sha256_hex : null
-  );
-  const ok =
-    verification.kuboPinned &&
-    verification.reachable &&
-    verification.sizeMatches &&
-    verification.sha256Matches;
-
-  res.json({
-    ok,
-    requestid: row.request_id,
-    cid: row.cid,
-    expectedSizeBytes: row.size_bytes,
-    expectedSha256Hex: row.sha256_verified ? row.sha256_hex : null,
-    ...verification,
-  });
 });
 
 // POST /v1/pins/:requestid/receipt — Issue or refresh a Verus-signed cryptographic pin receipt
@@ -2395,52 +2425,58 @@ router.post('/pins/gc', authenticate('pin:write'), async (req, res) => {
 
 // DELETE /v1/pins/:requestid (Reference-counted unpinning on Kubo!)
 router.delete('/pins/:requestid', authenticate('pin:write'), async (req, res) => {
-  const db = getDb();
-  const row = db
-    .prepare('SELECT * FROM pins WHERE request_id = ? AND i_address = ?')
-    .get(req.params.requestid, req.tenant.i_address);
-  if (!row) {
-    return res.status(404).json({
-      error: { reason: 'NOT_FOUND', details: 'Pin request ID not found' },
+  try {
+    const db = getDb();
+    const row = db
+      .prepare('SELECT * FROM pins WHERE request_id = ? AND i_address = ?')
+      .get(req.params.requestid, req.tenant.i_address);
+    if (!row) {
+      return res.status(404).json({
+        error: { reason: 'NOT_FOUND', details: 'Pin request ID not found' },
+      });
+    }
+
+    const now = new Date().toISOString();
+    db.prepare(`UPDATE pins SET status = 'unpinned', unpinned_at = ? WHERE request_id = ?`).run(
+      now,
+      row.request_id
+    );
+
+    // Reference-counted unpin: only unpin from Kubo if ZERO active tenants reference this CID
+    const remainingRefs = countActivePinReferences(row.cid);
+    let removedFromKubo = false;
+    if (remainingRefs === 0) {
+      removedFromKubo = await kuboPinRm(row.cid).catch(() => false);
+    }
+
+    writeAuditLog({
+      iAddress: req.tenant.i_address,
+      actorType: req.authType || 'tenant',
+      action: 'pin.unpin',
+      targetId: row.request_id,
+      details: { cid: row.cid, remainingTenantReferences: remainingRefs, removedFromKubo },
+      ipAddress: getClientIp(req),
+    });
+
+    dispatchWebhook(req.tenant.i_address, 'pin.deleted', {
+      requestid: row.request_id,
+      cid: row.cid,
+      remainingTenantReferences: remainingRefs,
+      removedFromKubo,
+    });
+
+    res.status(202).json({
+      ok: true,
+      requestid: row.request_id,
+      cid: row.cid,
+      remainingTenantReferences: remainingRefs,
+      removedFromKubo,
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: { reason: 'UNPIN_FAILED', details: err.message || 'Unpinning failed' },
     });
   }
-
-  const now = new Date().toISOString();
-  db.prepare(`UPDATE pins SET status = 'unpinned', unpinned_at = ? WHERE request_id = ?`).run(
-    now,
-    row.request_id
-  );
-
-  // Reference-counted unpin: only unpin from Kubo if ZERO active tenants reference this CID
-  const remainingRefs = countActivePinReferences(row.cid);
-  let removedFromKubo = false;
-  if (remainingRefs === 0) {
-    removedFromKubo = await kuboPinRm(row.cid);
-  }
-
-  writeAuditLog({
-    iAddress: req.tenant.i_address,
-    actorType: req.authType || 'tenant',
-    action: 'pin.unpin',
-    targetId: row.request_id,
-    details: { cid: row.cid, remainingTenantReferences: remainingRefs, removedFromKubo },
-    ipAddress: getClientIp(req),
-  });
-
-  dispatchWebhook(req.tenant.i_address, 'pin.deleted', {
-    requestid: row.request_id,
-    cid: row.cid,
-    remainingTenantReferences: remainingRefs,
-    removedFromKubo,
-  });
-
-  res.status(202).json({
-    ok: true,
-    requestid: row.request_id,
-    cid: row.cid,
-    remainingTenantReferences: remainingRefs,
-    removedFromKubo,
-  });
 });
 
 // ── 6. VDXF & ContentMultiMap Tools (Live Daemon getvdxfid + CMM Auto-Pin Watcher) ──
@@ -3100,7 +3136,8 @@ router.post('/billing/checkout', authenticate(), (req, res) => {
 
   const subtotalPence = plan.priceGbpPence;
   const vatRate = config.ukCompany.vatRate; // 20% UK VAT
-  const vatPence = Math.round(subtotalPence * vatRate);
+  // Integer pence math: 20% = divide by 5, avoid float multiplication.
+  const vatPence = Math.round(subtotalPence / 5);
   const totalPence = subtotalPence + vatPence;
   const spotRateGbp = config.gbpPerVrscRate;
   const amountVrsc = Number((totalPence / 100 / spotRateGbp).toFixed(4));
@@ -3216,6 +3253,15 @@ async function verifyVerusPaySettlementTx(invoice, txid) {
   }
 
   const recipient = String(invoice.receiving_identity || '').trim();
+  let recipientIAddress = '';
+  if (recipient) {
+    try {
+      const idInfo = await getIdentity(recipient);
+      recipientIAddress = idInfo?.identity?.identityaddress || '';
+    } catch {
+      recipientIAddress = '';
+    }
+  }
   const expectedAmount = Number(invoice.amount_vrsc);
   let amountMatched = false;
 
@@ -3227,8 +3273,19 @@ async function verifyVerusPaySettlementTx(invoice, txid) {
       .concat(spk.address ? [spk.address] : [])
       .concat(spk.identityprimary ? [spk.identityprimary] : [])
       .map((a) => String(a));
-    const addressMatched = !recipient || addresses.includes(recipient);
-    const voutAmount = Number(vout?.value ?? vout?.valueSat ?? vout?.amount ?? NaN);
+    const addressMatched =
+      !recipient ||
+      addresses.includes(recipient) ||
+      (recipientIAddress && addresses.includes(recipientIAddress));
+    const voutAmount = Number(
+      vout?.value !== undefined
+        ? vout.value
+        : vout?.valueSat !== undefined
+          ? Number(vout.valueSat) / 1e8
+          : vout?.amount !== undefined
+            ? vout.amount
+            : NaN
+    );
     if (addressMatched && Number.isFinite(voutAmount) && amountsClose(voutAmount, expectedAmount)) {
       amountMatched = true;
       break;
@@ -3310,6 +3367,20 @@ router.post('/billing/invoices/:invoiceId/settle', authenticate(), async (req, r
           },
         });
       }
+
+      // Check txid uniqueness across already settled invoices to prevent replay attacks
+      const existingSettled = db
+        .prepare("SELECT invoice_id FROM invoices WHERE txid = ? AND status = 'paid'")
+        .get(providedTxid);
+      if (existingSettled && existingSettled.invoice_id !== invoice.invoice_id) {
+        return res.status(400).json({
+          error: {
+            reason: 'TXID_ALREADY_USED',
+            details: 'This transaction ID has already been used to settle a paid invoice',
+          },
+        });
+      }
+
       // Paid plan upgrades require on-chain proof matching invoice recipient, amount, and memo.
       // Existing paid-plan invoices with amount_vrsc <= 0 are invalid and cannot be auto-settled.
       if (Number(invoice.amount_vrsc) > 0 || Number(invoice.total_gbp_pence) > 0) {
@@ -3333,16 +3404,22 @@ router.post('/billing/invoices/:invoiceId/settle', authenticate(), async (req, r
     }
 
     const now = new Date().toISOString();
-    db.prepare(`UPDATE invoices SET status = 'paid', txid = ?, paid_at = ? WHERE invoice_id = ?`).run(
-      settledTxid,
-      now,
-      invoice.invoice_id
-    );
-    db.prepare('UPDATE tenants SET plan_id = ?, updated_at = ? WHERE i_address = ?').run(
-      invoice.plan_id,
-      now,
-      req.tenant.i_address
-    );
+    withImmediateTransaction(db, () => {
+      const currentInv = db
+        .prepare('SELECT status FROM invoices WHERE invoice_id = ?')
+        .get(invoice.invoice_id);
+      if (!currentInv || currentInv.status === 'paid') return;
+      db.prepare(`UPDATE invoices SET status = 'paid', txid = ?, paid_at = ? WHERE invoice_id = ?`).run(
+        settledTxid,
+        now,
+        invoice.invoice_id
+      );
+      db.prepare('UPDATE tenants SET plan_id = ?, updated_at = ? WHERE i_address = ?').run(
+        invoice.plan_id,
+        now,
+        req.tenant.i_address
+      );
+    });
 
     writeAuditLog({
       iAddress: req.tenant.i_address,
@@ -3400,54 +3477,58 @@ router.get('/compliance/status', (req, res) => {
 });
 
 router.post('/compliance/takedown', authenticate(), async (req, res) => {
-  const cid = String(req.body?.cid || '').trim();
-  const reason = String(req.body?.reason || 'Reported violation of UK Terms of Service').trim();
-  if (!cid || !/^[A-Za-z0-9]+$/.test(cid)) {
-    return res.status(400).json({ error: 'Valid IPFS CID is required' });
-  }
+  try {
+    const cid = String(req.body?.cid || '').trim();
+    const reason = String(req.body?.reason || 'Reported violation of UK Terms of Service').trim();
+    if (!cid || !/^[A-Za-z0-9]+$/.test(cid)) {
+      return res.status(400).json({ error: 'Valid IPFS CID is required' });
+    }
 
-  const db = getDb();
-  const isAdmin =
-    config.adminIdentities.includes(req.tenant.i_address) ||
-    config.adminIdentities.includes(req.tenant.friendly_name);
-  const ownsPin = Boolean(
-    db
-      .prepare('SELECT request_id FROM pins WHERE cid = ? AND i_address = ?')
-      .get(cid, req.tenant.i_address)
-  );
-  if (!isAdmin && !ownsPin) {
-    return res.status(403).json({
-      error: 'Only platform administrators or the tenant who pinned this CID can execute a statutory takedown',
+    const db = getDb();
+    const isAdmin =
+      config.adminIdentities.includes(req.tenant.i_address) ||
+      config.adminIdentities.includes(req.tenant.friendly_name);
+    const ownsPin = Boolean(
+      db
+        .prepare('SELECT request_id FROM pins WHERE cid = ? AND i_address = ?')
+        .get(cid, req.tenant.i_address)
+    );
+    if (!isAdmin && !ownsPin) {
+      return res.status(403).json({
+        error: 'Only platform administrators or the tenant who pinned this CID can execute a statutory takedown',
+      });
+    }
+
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT OR REPLACE INTO blocked_cids (cid, reason, reporter_identity, created_at)
+       VALUES (?, ?, ?, ?)`
+    ).run(cid, reason, req.tenant.friendly_name, now);
+
+    db.prepare(`UPDATE pins SET status = 'blocked_uk_osa', unpinned_at = ? WHERE cid = ?`).run(
+      now,
+      cid
+    );
+    await kuboPinRm(cid).catch(() => false);
+
+    writeAuditLog({
+      iAddress: req.tenant.i_address,
+      actorType: req.authType || 'tenant',
+      action: 'compliance.takedown',
+      targetId: cid,
+      details: { reason },
+      ipAddress: getClientIp(req),
     });
+
+    res.status(201).json({
+      ok: true,
+      cid,
+      status: 451,
+      message: 'CID added to UK OSA denylist and unpinned from Kubo storage node.',
+    });
+  } catch (err) {
+    res.status(500).json({ error: { reason: 'TAKEDOWN_FAILED', details: err.message || 'Takedown failed' } });
   }
-
-  const now = new Date().toISOString();
-  db.prepare(
-    `INSERT OR REPLACE INTO blocked_cids (cid, reason, reporter_identity, created_at)
-     VALUES (?, ?, ?, ?)`
-  ).run(cid, reason, req.tenant.friendly_name, now);
-
-  db.prepare(`UPDATE pins SET status = 'blocked_uk_osa', unpinned_at = ? WHERE cid = ?`).run(
-    now,
-    cid
-  );
-  await kuboPinRm(cid);
-
-  writeAuditLog({
-    iAddress: req.tenant.i_address,
-    actorType: req.authType || 'tenant',
-    action: 'compliance.takedown',
-    targetId: cid,
-    details: { reason },
-    ipAddress: getClientIp(req),
-  });
-
-  res.status(201).json({
-    ok: true,
-    cid,
-    status: 451,
-    message: 'CID added to UK OSA denylist and unpinned from Kubo storage node.',
-  });
 });
 
 // ── CMM Traversal Tree (Visual Structure) ──────────────────────────────────
@@ -3600,17 +3681,33 @@ router.post('/billing/stripe-webhook', async (req, res) => {
       if (invoiceId) {
         const invoice = db.prepare('SELECT * FROM invoices WHERE invoice_id = ?').get(invoiceId);
         if (invoice && invoice.status !== 'paid') {
+          // Verify currency and amount against invoice before settling
+          const sessionCurrency = String(session?.currency || '').toLowerCase();
+          const amountTotalPence = Number(session?.amount_total || 0);
+          if (sessionCurrency && sessionCurrency !== 'gbp') {
+            console.error(`[Stripe Webhook] Currency mismatch for ${invoiceId}: expected gbp, got ${sessionCurrency}`);
+            return res.status(400).json({ error: 'Currency mismatch' });
+          }
+          if (amountTotalPence > 0 && amountTotalPence < invoice.total_gbp_pence) {
+            console.error(`[Stripe Webhook] Underpayment for ${invoiceId}: expected ${invoice.total_gbp_pence}, got ${amountTotalPence}`);
+            return res.status(400).json({ error: 'Underpayment' });
+          }
           const now = new Date().toISOString();
-          db.prepare(`UPDATE invoices SET status = 'paid', txid = ?, paid_at = ? WHERE invoice_id = ?`).run(
-            session.payment_intent || `stripe_pi_${crypto.randomBytes(8).toString('hex')}`,
-            now,
-            invoiceId
-          );
-          db.prepare('UPDATE tenants SET plan_id = ?, updated_at = ? WHERE i_address = ?').run(
-            invoice.plan_id,
-            now,
-            invoice.i_address
-          );
+          const pi = session.payment_intent || `stripe_pi_${crypto.randomBytes(8).toString('hex')}`;
+          withImmediateTransaction(db, () => {
+            const cur = db.prepare('SELECT status FROM invoices WHERE invoice_id = ?').get(invoiceId);
+            if (!cur || cur.status === 'paid') return;
+            db.prepare(`UPDATE invoices SET status = 'paid', txid = ?, paid_at = ? WHERE invoice_id = ?`).run(
+              pi,
+              now,
+              invoiceId
+            );
+            db.prepare('UPDATE tenants SET plan_id = ?, updated_at = ? WHERE i_address = ?').run(
+              invoice.plan_id,
+              now,
+              invoice.i_address
+            );
+          });
           console.log(`[Stripe Webhook] Invoice ${invoice.invoice_number} settled via Stripe UK for ${invoice.i_address}`);
         }
       }
@@ -3713,12 +3810,6 @@ router.post('/internal/blocknotify', async (req, res) => {
     const peerIp = req.socket?.remoteAddress || req.connection?.remoteAddress || '';
     const isLoopback = peerIp === '127.0.0.1' || peerIp === '::1' || peerIp === '::ffff:127.0.0.1';
     if (!isLoopback) return res.status(403).json({ error: 'Internal endpoint — loopback required' });
-    return res.status(202).json({ ok: true, trigger: 'blocknotify' });
-  setImmediate(() => {
-    syncWatchersForBlock({ blockHeight, blockHash, trigger: 'blocknotify' }).catch((err) => {
-      console.warn("[blocknotify] async sync failed:", err?.message || err);
-    });
-  });
   }
   const provided = req.get('x-sovpin-internal-secret') || '';
   let ok = false;
@@ -3727,14 +3818,10 @@ router.post('/internal/blocknotify', async (req, res) => {
   } catch {
     ok = false;
   }
-  if (!ok) return res.status(403).json({ error: 'Internal endpoint — valid secret required' });
+  if (configuredSecret && !ok) return res.status(403).json({ error: 'Internal endpoint — valid secret required' });
 
-  res.status(202).json({ ok: true, trigger: 'blocknotify' });
-  setImmediate(() => {
-    syncWatchersForBlock({ blockHeight, blockHash, trigger: 'blocknotify' }).catch((err) => {
-      console.warn("[blocknotify] async sync failed:", err?.message || err);
-    });
-  });
+  const result = await syncWatchersForBlock({ blockHeight, blockHash, trigger: 'blocknotify' });
+  return res.status(200).json(result);
 });
 
 router.runWatcherBlockSync = syncWatchersForBlock;

@@ -32,6 +32,9 @@ export default function BillingPage() {
   const [companyName, setCompanyName] = useState(account?.tenant?.uk_company_name || '');
   const [vatNumber, setVatNumber] = useState(account?.tenant?.uk_vat_number || '');
   const [notice, setNotice] = useState<{ text: string; tone: 'success' | 'error' } | null>(null);
+  const [settleInvoice, setSettleInvoice] = useState<any | null>(null);
+  const [settleTxid, setSettleTxid] = useState('');
+  const [settleError, setSettleError] = useState<string | null>(null);
 
   useEffect(() => {
     if (notice && notice.tone !== 'error') {
@@ -57,16 +60,25 @@ export default function BillingPage() {
     }
   };
 
-  const settle = async (id: string) => {
-    setNotice(null);
+  const handleSettleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSettleError(null);
+    const txid = settleTxid.trim();
+    if (!/^[0-9a-fA-F]{64}$/.test(txid)) {
+      setSettleError('A valid 64-character hexadecimal Verus transaction ID (txid) is required.');
+      return;
+    }
+    if (!settleInvoice) return;
     try {
-      const r: any = await settleMut.mutateAsync(id);
+      const r: any = await settleMut.mutateAsync({ invoiceId: settleInvoice.invoice_id, txid });
+      setSettleInvoice(null);
+      setSettleTxid('');
       setNotice({
-        text: `Invoice ${r.invoice.invoice_number} settled. Provisioned ${r.plan.name}.`,
+        text: `Invoice ${r.invoice?.invoice_number || settleInvoice.invoice_number} settled. Provisioned ${r.plan?.name || settleInvoice.plan_id}.`,
         tone: 'success',
       });
-    } catch (e: any) {
-      setNotice({ text: e.message, tone: 'error' });
+    } catch (err: any) {
+      setSettleError(err.message || 'Settlement verification failed.');
     }
   };
 
@@ -123,12 +135,84 @@ export default function BillingPage() {
         )}
       </Dialog>
 
+      {/* Settle Invoice Modal */}
+      <Dialog
+        open={settleInvoice !== null}
+        label="Settle VerusPay Invoice"
+        onClose={() => {
+          setSettleInvoice(null);
+          setSettleTxid('');
+          setSettleError(null);
+        }}
+      >
+        {settleInvoice && (
+          <form onSubmit={handleSettleSubmit} className="space-y-4">
+            <div>
+              <h3 className="text-sm font-bold text-[#F3F4F6]">
+                Settle Invoice {settleInvoice.invoice_number}
+              </h3>
+              <p className="text-[11px] text-[#9CA3AF] mt-1">
+                Enter the on-chain transaction ID (txid) confirming your payment of{' '}
+                <span className="text-[#10B981] font-bold">
+                  {settleInvoice.amount_vrsc} VRSC
+                </span>{' '}
+                to <span className="text-[#F3F4F6] font-mono">{settleInvoice.receiving_identity}</span>.
+              </p>
+            </div>
+
+            {settleError && (
+              <div className="p-2 border border-red-800 bg-[#181B20] text-red-400 text-[11px]" role="alert">
+                {settleError}
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label htmlFor="settle-txid" className="block text-[11px] font-bold text-[#F3F4F6] uppercase">
+                Verus Transaction ID (txid)
+              </label>
+              <input
+                id="settle-txid"
+                type="text"
+                value={settleTxid}
+                onChange={(e) => setSettleTxid(e.target.value)}
+                placeholder="64-character hexadecimal transaction ID..."
+                className="w-full bg-[#090A0C] border border-[#22262E] px-3 py-1.5 text-xs text-[#F3F4F6] font-mono focus:border-[#10B981] focus:outline-none"
+                autoFocus
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-[#22262E]">
+              <button
+                type="button"
+                onClick={() => {
+                  setSettleInvoice(null);
+                  setSettleTxid('');
+                  setSettleError(null);
+                }}
+                className="px-3 py-1 border border-[#22262E] text-[#9CA3AF] hover:text-[#F3F4F6] cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={settleMut.isPending}
+                className="px-3 py-1 bg-[#10B981] text-[#090A0C] font-bold cursor-pointer disabled:opacity-50"
+              >
+                {settleMut.isPending ? 'Verifying on-chain…' : 'Verify & Settle'}
+              </button>
+            </div>
+          </form>
+        )}
+      </Dialog>
+
       {/* Segmented Plan Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-[#22262E] border border-[#22262E] bg-[#111317]">
         {plans.map((p: any) => {
           const isCurrent = account?.tenant?.plan_id === p.id;
-          const totalIncVat = ((p.priceGbpPence * 1.2) / 100).toFixed(2);
-          const totalVrsc = (p.priceVrsc * 1.2).toFixed(2);
+          const vatPence = Math.round(Number(p.priceGbpPence || 0) / 5);
+          const totalPence = Number(p.priceGbpPence || 0) + vatPence;
+          const totalIncVat = (totalPence / 100).toFixed(2);
+          const totalVrsc = p.priceVrsc > 0 ? (totalPence / 100 / 3.0).toFixed(2) : '0.00';
           return (
             <div key={p.id} className="p-4 flex flex-col justify-between space-y-4">
               <div className="space-y-2.5">
@@ -286,7 +370,11 @@ export default function BillingPage() {
                             <CopyInline value={sendCmd} label="CLI" />
                             <button
                               type="button"
-                              onClick={() => settle(inv.invoice_id)}
+                              onClick={() => {
+                                setSettleInvoice(inv);
+                                setSettleTxid('');
+                                setSettleError(null);
+                              }}
                               className="px-2 py-0.5 bg-[#10B981] text-[#090A0C] font-bold cursor-pointer"
                             >
                               Settle

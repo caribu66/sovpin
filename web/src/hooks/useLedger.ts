@@ -324,7 +324,11 @@ export function useSettleInvoice() {
   const qc = useQueryClient();
   const { refresh } = useAuth();
   return useMutation({
-    mutationFn: (id: string) => api(`/v1/billing/invoices/${id}/settle`, { method: 'POST', body: JSON.stringify({}) }),
+    mutationFn: (vars: { invoiceId: string; txid: string }) =>
+      api(`/v1/billing/invoices/${encodeURIComponent(vars.invoiceId)}/settle`, {
+        method: 'POST',
+        body: JSON.stringify({ txid: vars.txid }),
+      }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['invoices'] });
       void refresh();

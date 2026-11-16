@@ -1,0 +1,17 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/dashboard"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    # Surface updates to the Verus primitive git deps so we review daemon-side changes.
+    allow:
+      - dependency-name: "verus-typescript-primitives"
+      - dependency-name: "verusd-rpc-ts-client"
+      - dependency-name: "verusid-ts-client"
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5

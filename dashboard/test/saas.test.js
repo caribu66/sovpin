@@ -548,8 +548,9 @@ test('8. VerusID QR LoginConsent flow: challenge → user-signed response → ca
   // 2. Sign response as vreal@ using verusid-ts-client
   const { VerusIdInterface } = require('verusid-ts-client');
   const primitives = require('verus-typescript-primitives');
-  const verusId = new VerusIdInterface('VRSCTEST', 'http://192.168.86.110:25779', {
-    auth: { username: 'test', password: 'test' },
+  const verusRpcUrl = `http://${config.verusRpcHost}:${config.verusRpcPort}`;
+  const verusId = new VerusIdInterface(config.verusChain, verusRpcUrl, {
+    auth: { username: config.verusRpcUser || 'test', password: config.verusRpcPassword || 'test' },
   });
   const req = primitives.LoginConsentRequest.fromWalletDeeplinkUri(ch.deepLink);
   assert.equal(req.challenge.challenge_id, ch.challengeId);

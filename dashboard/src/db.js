@@ -85,6 +85,11 @@ function getDb() {
 
     CREATE INDEX IF NOT EXISTS idx_pins_tenant_status ON pins(i_address, status);
     CREATE INDEX IF NOT EXISTS idx_pins_cid_status ON pins(cid, status);
+    CREATE INDEX IF NOT EXISTS idx_pins_cid ON pins(cid);
+    CREATE INDEX IF NOT EXISTS idx_pins_i_address ON pins(i_address);
+    CREATE INDEX IF NOT EXISTS idx_auth_challenges_expires ON auth_challenges(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_login_consent_poll_token ON login_consent_sessions(poll_token);
+    CREATE INDEX IF NOT EXISTS idx_chunked_uploads_status_expires ON chunked_uploads(status, expires_at);
 
     CREATE TABLE IF NOT EXISTS cmm_watchers (
       watcher_id TEXT PRIMARY KEY,
@@ -196,6 +201,15 @@ function getDb() {
       created_at TEXT NOT NULL,
       FOREIGN KEY (webhook_id) REFERENCES webhooks(webhook_id) ON DELETE CASCADE
     );
+
+    CREATE INDEX IF NOT EXISTS idx_sessions_i_address ON sessions(i_address);
+    CREATE INDEX IF NOT EXISTS idx_api_keys_i_address ON api_keys(i_address);
+    CREATE INDEX IF NOT EXISTS idx_cmm_watchers_i_address ON cmm_watchers(i_address);
+    CREATE INDEX IF NOT EXISTS idx_invoices_i_address ON invoices(i_address);
+    CREATE INDEX IF NOT EXISTS idx_invoices_txid ON invoices(txid);
+    CREATE INDEX IF NOT EXISTS idx_webhooks_i_address ON webhooks(i_address);
+    CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_wh_id ON webhook_deliveries(webhook_id);
+    CREATE INDEX IF NOT EXISTS idx_chunked_uploads_tenant ON chunked_uploads(i_address, status);
   `);
 
   const pinColumns = db.prepare('PRAGMA table_info(pins)').all();
@@ -407,8 +421,21 @@ function getSystemMetricsCounts() {
   };
 }
 
+function withImmediateTransaction(db, fn) {
+  db.exec('BEGIN IMMEDIATE;');
+  try {
+    const result = fn();
+    db.exec('COMMIT;');
+    return result;
+  } catch (err) {
+    try { db.exec('ROLLBACK;'); } catch (_) {}
+    throw err;
+  }
+}
+
 module.exports = {
   getDb,
+  withImmediateTransaction,
   hashToken,
   upsertTenant,
   getTenantUsage,

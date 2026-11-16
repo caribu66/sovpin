@@ -10,6 +10,7 @@
 | :--- | :--- |
 | [**`docs/ARCHITECTURE_AND_API.md`**](docs/ARCHITECTURE_AND_API.md) | **Canonical Technical & API Guide:** Complete system topology, upload modes (JSON, streaming up to 100 MiB, chunked `> 100 MiB`), every REST endpoint, SQLite table schema, `.env` variables, and ops commands. Verified on every `npm test` run by `dashboard/test/docs-reality.test.js`. |
 | [**`docs/FOUNDATION.md`**](docs/FOUNDATION.md) | **Product Charter & Protocol Benchmarks:** The 5 architectural pillars of SovPin, Verus `URLRef` / `DataDescriptor` binary encoding rules, native `verusd` storage fee measurements, and live Cloudflare edge upload benchmarks. |
+| [**`docs/REMEDIATION_REPORT.md`**](docs/REMEDIATION_REPORT.md) | **Production Readiness Audit & Remediation Ledger:** Full 6-pillar security audit, vulnerability remediations, test verification scores, and operational continuity plan. |
 
 ---
 

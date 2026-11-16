@@ -73,7 +73,7 @@ npm run typecheck   # strict tsc (fails closed — no `|| true`)
 npm run build       # production build (lazy per-route chunks)
 ```
 
-`npm test` needs **live services**: LAN verusd (`192.168.86.110:25779`, VRSCTEST)
+`npm test` needs **live services**: Tailscale verusd (`100.66.85.86:25779`, VRSCTEST)
 and Tailscale Kubo (`100.66.85.86:5001`). Tests boot the app on an ephemeral port
 with a temp SQLite file, so they never touch production data — but they fail
 without those daemons. `docs-reality.test.js` is the only hermetic test file.

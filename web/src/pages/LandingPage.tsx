@@ -269,8 +269,10 @@ const { identity, blockHeight, dataDescriptors, references } = await res.json();
 
         <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-[#22262E] border border-[#22262E] bg-[#111317] font-mono text-xs tabular-nums">
           {(publicInfo?.plans || []).map((p: any) => {
-            const totalIncVat = ((p.priceGbpPence * 1.2) / 100).toFixed(2);
-            const totalVrsc = (p.priceVrsc * 1.2).toFixed(2);
+            const vatPence = Math.round(Number(p.priceGbpPence || 0) / 5);
+            const totalPence = Number(p.priceGbpPence || 0) + vatPence;
+            const totalIncVat = (totalPence / 100).toFixed(2);
+            const totalVrsc = p.priceVrsc > 0 ? (totalPence / 100 / 3.0).toFixed(2) : '0.00';
             return (
               <div key={p.id} className="p-5 flex flex-col justify-between space-y-4">
                 <div className="space-y-3">

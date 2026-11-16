@@ -7,13 +7,14 @@ set -euo pipefail
 
 ZONE="sovpin.com"
 RULESET_ID="2e7849d6314246df8346142659b21066"
+CF_BIN="${CF_BIN:-$HOME/.local/bin/cf}"
 
 echo "=== SovPin Cache Configuration ==="
 echo "Zone: $ZONE"
 echo ""
 
 echo "[1/2] Updating cache ruleset (respect_origin for edge + browser TTL)..."
-/home/demon/.local/bin/cf rulesets update "$RULESET_ID" -z "$ZONE" --body '{
+"$CF_BIN" rulesets update "$RULESET_ID" -z "$ZONE" --body '{
   "rules": [
     {
       "action": "set_cache_settings",
@@ -34,10 +35,10 @@ echo "[1/2] Updating cache ruleset (respect_origin for edge + browser TTL)..."
 }'
 
 echo "[2/3] Purging zone cache..."
-/home/demon/.local/bin/cf cache purge -z "$ZONE" -f --body '{"purge_everything":true}'
+"$CF_BIN" cache purge -z "$ZONE" -f --body '{"purge_everything":true}'
 
 echo "[3/3] Ensuring rate limit ruleset (200 req/10s per IP on /ipfs/*)..."
-/home/demon/.local/bin/cf rulesets create -z "$ZONE" --body '{
+"$CF_BIN" rulesets create -z "$ZONE" --body '{
   "name": "rate_limiting",
   "kind": "zone",
   "phase": "http_ratelimit",

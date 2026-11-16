@@ -14,7 +14,14 @@ const LEGACY_PREFIX = 'whsec_';
 function dataKey() {
   const master = process.env.SOVPIN_INTERNAL_SECRET || '';
   if (!master) throw new Error('SOVPIN_INTERNAL_SECRET is required for webhook secret storage');
-  return crypto.hkdfSync('sha256', master, Buffer.from('sovpin/webhook-secret/v1'), '', 32);
+  // Non-empty salt + distinct info context for key separation (best practice).
+  return crypto.hkdfSync(
+    'sha256',
+    master,
+    Buffer.from('sovpin-hkdf-salt-v1', 'utf8'),
+    Buffer.from('sovpin/webhook-secret/data-key/v1', 'utf8'),
+    32
+  );
 }
 
 function sealSecret(plaintext) {

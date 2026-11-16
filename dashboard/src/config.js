@@ -47,7 +47,7 @@ const PLANS = {
     chainScope: 'VRSC + VRSCTEST + PBaaS',
     priceGbpPence: 4900, // £49.00 ex VAT
     priceGbpDisplay: '£49',
-    priceVrsc: 16.0,
+    priceVrsc: 16.3333, // 49.00 / 3.0 spot rate
     storageLimitBytes: 1024 * 1024 * 1024 * 1024, // 1 TB
     gatewayBandwidthBytes: 5 * 1024 * 1024 * 1024 * 1024, // 5 TB
     maxApiKeys: 50,
@@ -87,7 +87,7 @@ const config = {
   sshBin: process.env.SSH_BIN || 'ssh',
   macbookSshKeyPath: process.env.MACBOOK_SSH_KEY_PATH || path.join(os.homedir(), '.ssh', 'vreal_mirror_ed25519'),
   macbookSshTarget: process.env.MACBOOK_SSH_TARGET || 'macbook@192.168.86.110',
-  verusRpcHost: process.env.VERUS_RPC_HOST || '192.168.86.110',
+  verusRpcHost: process.env.VERUS_RPC_HOST || process.env.TAILSCALE_IP || '100.66.85.86',
   verusRpcPort: Number(process.env.VERUS_RPC_PORT || 25779),
   // No credential defaults: require explicit configuration per environment.
   verusRpcUser: process.env.VERUS_RPC_USER || '',

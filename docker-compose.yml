@@ -32,14 +32,12 @@ services:
       # IPFS blockstore (pinned bytes) → HDD (bind mount)
       - "/srv/media/kubo-blocks:/data/ipfs/blocks"
     ports:
-      # Bound to Tailscale IP + MacBook LAN — NOT 0.0.0.0
-      # (LAN bindings let hosts without Tailscale reach Kubo; TUN-mode
-      # peers such as the Chromebook reach it over 100.x directly.)
+      # Bound to Tailscale IP — administrative API 5001 is NEVER exposed to public or LAN
+      # (Read-only gateway 8080 is available on Tailscale and local LAN for media clients.)
       - "100.66.85.86:4001:4001"
       - "100.66.85.86:4001:4001/udp"
       - "100.66.85.86:5001:5001"
       - "100.66.85.86:8080:8080"
-      - "192.168.86.110:5001:5001"
       - "192.168.86.110:8080:8080"
     environment:
       - IPFS_PROFILE=server

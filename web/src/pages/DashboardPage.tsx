@@ -333,7 +333,10 @@ export default function DashboardPage() {
       body: `The object is removed from your tenant ledger. The CID stays pinned while any other tenant references it (current object: ${requestId}).`,
       confirmLabel: 'Unpin object',
       busyLabel: 'Unpinning…',
-      onConfirm: () => doUnpin([requestId]),
+      onConfirm: async () => {
+        await doUnpin([requestId]);
+        setConfirm(null);
+      },
     });
   };
 

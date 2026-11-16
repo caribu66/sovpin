@@ -6,6 +6,7 @@ set -euo pipefail
 
 TUNNEL_ID="990fae36-b92b-457b-af17-5737ed2d8a35"
 TAILSCALE_IP="100.66.85.86"
+CF_BIN="${CF_BIN:-$HOME/.local/bin/cf}"
 
 echo "=== SovPin Cloudflare Tunnel Configuration ==="
 echo "Tunnel: $TUNNEL_ID"
@@ -13,11 +14,11 @@ echo ""
 
 # Fetch current config
 echo "[1/3] Fetching current tunnel config..."
-CURRENT=$(/home/demon/.local/bin/cf tunnels config get "$TUNNEL_ID" --quiet 2>/dev/null || true)
+CURRENT=$("$CF_BIN" tunnels config get "$TUNNEL_ID" --quiet 2>/dev/null || true)
 
 # Build new ingress (prepend sovpin rule, keep existing rules)
 echo "[2/3] Updating tunnel ingress..."
-/home/demon/.local/bin/cf tunnels config update "$TUNNEL_ID" --body '{
+"$CF_BIN" tunnels config update "$TUNNEL_ID" --body '{
   "config": {
     "ingress": [
       {
@@ -61,7 +62,7 @@ echo "[2/3] Updating tunnel ingress..."
 }'
 
 echo "[3/3] Verifying..."
-/home/demon/.local/bin/cf tunnels config get "$TUNNEL_ID" | jq -r '.config.ingress[] | "  \(.hostname // "(catch-all)") → \(.service)"'
+"$CF_BIN" tunnels config get "$TUNNEL_ID" | jq -r '.config.ingress[] | "  \(.hostname // "(catch-all)") → \(.service)"'
 
 echo ""
 echo "=== Tunnel configured ==="

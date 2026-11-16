@@ -1,3 +1,4 @@
+try { process.loadEnvFile(); } catch (_) {}
 const express = require('express');
 const { execFile } = require('child_process');
 const path = require('path');
@@ -9,15 +10,22 @@ const { getDaemonInfo, verusRpc } = require('./src/verus-rpc');
 const app = express();
 // Do not trust X-Forwarded-* headers by default; req.ip must reflect the direct peer.
 // Loopback-only/admin protections use the socket peer address explicitly.
-app.set('trust proxy', false);
+app.set('trust proxy', 1);
 
 function getSocketIp(req) {
   return req.socket?.remoteAddress || req.connection?.remoteAddress || '';
 }
 
-function isLoopbackSocket(req) {
+function isGenuineLoopback(req) {
   const ip = getSocketIp(req);
-  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+  const isLoopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+  if (!isLoopback) return false;
+  // If forwarded through Cloudflare Tunnel or an external proxy, reject loopback claims:
+  // external callers through cloudflared have 127.0.0.1 socket peer but carry edge headers.
+  if (req.get('cf-connecting-ip') || req.get('cf-ray') || req.get('x-forwarded-for')) {
+    return false;
+  }
+  return true;
 }
 
 app.use((req, res, next) => {
@@ -82,7 +90,15 @@ const TUNNEL_ID = config.tunnelId;
 const RULESET_ID = config.rulesetId;
 const ZONE = config.zone;
 
-app.use(express.json({ limit: '50mb', verify: (req, _res, buf) => { req.rawBody = buf.toString('utf8'); } }));
+app.use(express.json({
+  limit: '50mb',
+  verify: (req, _res, buf) => {
+    // Only buffer raw body string for endpoints that require cryptographic signature verification (Stripe)
+    if (req.originalUrl?.includes('stripe-webhook') || req.url?.includes('stripe-webhook')) {
+      req.rawBody = buf.toString('utf8');
+    }
+  },
+}));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 // Serve the production React frontend (sovpin/web/dist) at the root.
 const webDist = path.join(__dirname, '..', 'web', 'dist');
@@ -125,7 +141,7 @@ function kuboRpc(endpoint, method = 'POST') {
 
 // ── Guard: infrastructure endpoints are loopback-only (socket peer, not forwarded headers) ──────────────
 function loopbackOnly(req, res, next) {
-  if (isLoopbackSocket(req)) return next();
+  if (isGenuineLoopback(req)) return next();
   return res.status(403).json({ error: 'Forbidden' });
 }
 app.use('/api', loopbackOnly);
@@ -468,6 +484,17 @@ if (fs.existsSync(webDist)) {
     next();
   });
 }
+
+// Global Express error handler: formats syntax errors (e.g. malformed JSON) and unexpected errors as structured JSON
+app.use((err, _req, res, _next) => {
+  const status = typeof err.status === 'number' && err.status >= 400 && err.status < 600 ? err.status : 500;
+  const reason = err.code || err.reason || (status === 400 ? 'BAD_REQUEST' : 'INTERNAL_SERVER_ERROR');
+  const details =
+    status === 500 && (process.env.NODE_ENV || 'production') === 'production'
+      ? 'An unexpected internal error occurred'
+      : err.message || 'Request failed';
+  res.status(status).json({ error: { reason, details } });
+});
 
 // ── CMM Auto-Sync & Expired State Poller ───────────────────────────────────
 // Periodically sweeps expired challenges/sessions/uploads and syncs active CMM watchers.

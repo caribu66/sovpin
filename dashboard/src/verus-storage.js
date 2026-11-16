@@ -1,4 +1,6 @@
-const { CrossChainDataRef, DataDescriptor, URLRef } = require('verus-typescript-primitives');
+const prim = require('verus-typescript-primitives');
+const { CrossChainDataRef, DataDescriptor, URLRef, VdxfUniValue } = prim;
+const { CrossChainDataRefKey, DataDescriptorKey } = require('verus-typescript-primitives/dist/vdxf/vdxfdatakeys');
 
 const CROSS_CHAIN_DATA_REF_TYPE_NAMES = {
   [CrossChainDataRef.TYPE_CROSSCHAIN_DATAREF]: 'PBaaSEvidenceRef',
@@ -31,15 +33,21 @@ function buildUrlRefCmmValue({ url, sha256Hex, label, mimeType }) {
     ...(hasHash ? { dataHash: Buffer.from(sha256Hex, 'hex') } : {}),
   });
   const crossChainDataRef = new CrossChainDataRef(urlRef);
+  const crossChainUniValue = new VdxfUniValue({ values: [{ [CrossChainDataRefKey.vdxfid]: crossChainDataRef }] });
+
   const descriptor = new DataDescriptor({
     version: DataDescriptor.DEFAULT_VERSION,
     ...(typeof label === 'string' && label.trim() ? { label: label.trim() } : {}),
     ...(typeof mimeType === 'string' && mimeType.trim() ? { mimeType: mimeType.trim() } : {}),
-    objectdata: crossChainDataRef.toBuffer(),
+    objectdata: crossChainUniValue.toBuffer(),
   });
 
+  // Wrap in VDXF universal value so the serialized bytes carry the VDXF
+  // type-key wrapper (08a2...) VREAL expects, rather than bare DataDescriptor bytes.
+  const uniValue = new VdxfUniValue({ values: [{ [DataDescriptorKey.vdxfid]: descriptor }] });
+
   return {
-    serializedhex: descriptor.toBuffer().toString('hex'),
+    serializedhex: uniValue.toBuffer().toString('hex'),
     urlRef: urlRef.toJson(),
     dataDescriptor: descriptor.toJson(),
   };
@@ -59,9 +67,25 @@ function decodeDataDescriptorCmmValue(serializedHex) {
 
   try {
     const rawBuffer = Buffer.from(serializedHex, 'hex');
-    const descriptor = new DataDescriptor();
-    const bytesRead = descriptor.fromBuffer(rawBuffer);
-    if (bytesRead !== rawBuffer.length || !descriptor.isValid()) {
+    // The serialized form is a VdxfUniValue wrapping a DataDescriptor (Verus primitive standard).
+    // Unwrap it; fall back to a bare DataDescriptor for legacy serialized bytes.
+    let descriptor = null;
+    let bytesRead = 0;
+    try {
+      const uni = new VdxfUniValue();
+      const uniBytes = uni.fromBuffer(rawBuffer);
+      if (uniBytes === rawBuffer.length && Array.isArray(uni.values) && uni.values.length > 0) {
+        const entry = uni.values[0];
+        const dd = entry && entry[DataDescriptorKey.vdxfid];
+        if (dd instanceof DataDescriptor && dd.isValid()) {
+          descriptor = dd;
+          bytesRead = rawBuffer.length;
+        }
+      }
+    } catch {
+      descriptor = null;
+    }
+    if (!descriptor) {
       return null;
     }
 
@@ -70,11 +94,26 @@ function decodeDataDescriptorCmmValue(serializedHex) {
     let innerType = 'RAW_OBJECTDATA';
 
     if (descriptor.objectdata?.length) {
+      // Unwrap the VdxfUniValue that now wraps the CrossChainDataRef (Verus primitive standard).
+      let objectDataBuffer = descriptor.objectdata;
+      try {
+        const innerUni = new VdxfUniValue();
+        if (innerUni.fromBuffer(objectDataBuffer) === objectDataBuffer.length && Array.isArray(innerUni.values) && innerUni.values.length > 0) {
+          const innerEntry = innerUni.values[0];
+          const innerKey = Object.keys(innerEntry)[0];
+          // The wrapped value is a CrossChainDataRef stored as a VDXF object; re-serialize via its buffer if available
+          if (innerEntry[innerKey] && typeof innerEntry[innerKey].toBuffer === 'function') {
+            objectDataBuffer = innerEntry[innerKey].toBuffer();
+          }
+        }
+      } catch {
+        // fall through: try raw objectdata as before
+      }
       // Try CrossChainDataRef (URLRef, IdentityMultimapRef, PBaaSEvidenceRef)
       try {
         const reference = new CrossChainDataRef();
-        const refBytesRead = reference.fromBuffer(descriptor.objectdata);
-        if (refBytesRead === descriptor.objectdata.length && reference.isValid()) {
+        const refBytesRead = reference.fromBuffer(objectDataBuffer);
+        if (refBytesRead === objectDataBuffer.length && reference.isValid()) {
           const typeCode = reference.which();
           innerType = CROSS_CHAIN_DATA_REF_TYPE_NAMES[typeCode] || `CrossChainDataRef(${typeCode})`;
           crossChainDataRef = reference.toJson();

@@ -28,7 +28,9 @@ s = sqlite3.connect(f'file:{src}?mode=ro', uri=True)
 d = sqlite3.connect(dst)
 with d:
     s.backup(d)
-d.execute('PRAGMA integrity_check').fetchall()
+res = d.execute('PRAGMA integrity_check').fetchall()
+if res != [('ok',)]:
+    raise RuntimeError(f'SQLite integrity check failed on backup snapshot: {res}')
 s.close(); d.close()
 EOF
 

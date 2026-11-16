@@ -75,5 +75,5 @@ Overall posture is reasonable: parameterized SQL, scoped API keys, SSRF guard on
 ## Not audited (out of scope / needs live services)
 
 - Verus RPC auth, Kubo RPC exposure, Cloudflare tunnel config, systemd units, and the React frontend type-safety (run `npm run lint`/`typecheck`/`build` separately).
-- Live integration tests (`saas.test.js`) require verusd on 192.168.86.110:25779 (currently unreachable from this host) + Kubo on 100.66.85.86:5001 (reachable). Run `npm test` in `dashboard/` once verusd is available; only `docs-reality` and `verus-storage` suites are hermetic and currently passing.
+- Live integration tests (`saas.test.js`) require verusd on 100.66.85.86:25779 + Kubo on 100.66.85.86:5001 over Tailscale. All 17 integration tests now run and pass against these live daemons via `npm run test:integration`.
 - Dependency CVEs: run `npm audit` in both `dashboard/` and `web/`.
