@@ -48,10 +48,10 @@ test('Financial Math: VAT pence and VRSC conversion consistency', () => {
   const vatRate = config.ukCompany.vatRate;
   assert.equal(vatRate, 0.20, 'UK VAT rate must be 20%');
 
-  // Builder Plan
+  // Builder Plan (free tier: no VRSC field — paid/free is gated on priceGbpPence)
   const builder = config.PLANS.builder;
   assert.equal(builder.priceGbpPence, 0);
-  assert.equal(builder.priceVrsc, 0);
+  assert.ok(!('priceVrsc' in builder), 'plans must not carry float priceVrsc');
 
   // Indie Plan (£12.00 ex VAT)
   const indie = config.PLANS.indie;
@@ -72,7 +72,7 @@ test('Financial Math: VAT pence and VRSC conversion consistency', () => {
   assert.equal(studioTotalPence, 5880); // £58.80 total
   const studioTotalVrsc = Number((studioTotalPence / 100 / config.gbpPerVrscRate).toFixed(4));
   assert.equal(studioTotalVrsc, 19.6); // 19.6 VRSC total
-  assert.equal(Number((studio.priceVrsc * 1.2).toFixed(2)), 19.6);
+  assert.ok(!('priceVrsc' in studio), 'plans must not carry float priceVrsc');
 });
 
 test('SQLite Transactions: withImmediateTransaction executes atomically and handles rollback', () => {

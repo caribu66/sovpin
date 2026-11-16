@@ -214,7 +214,8 @@ export default function BillingPage() {
           const vatPence = Math.round(Number(p.priceGbpPence || 0) / 5);
           const totalPence = Number(p.priceGbpPence || 0) + vatPence;
           const totalIncVat = (totalPence / 100).toFixed(2);
-          const totalVrsc = p.priceVrsc > 0 ? (Math.round((totalPence / 100 / spotRate) * 1e8) / 1e8).toFixed(4) : '0.0000';
+          const isPaidPlan = Number(p.priceGbpPence || 0) > 0;
+          const totalVrsc = isPaidPlan ? (Math.round((totalPence / 100 / spotRate) * 1e8) / 1e8).toFixed(4) : '0.0000';
           return (
             <div key={p.id} className="p-4 flex flex-col justify-between space-y-4">
               <div className="space-y-2.5">
@@ -237,7 +238,7 @@ export default function BillingPage() {
                     </span>
                   </div>
                   <div className="text-[11px] text-[#10B981] mt-0.5">
-                    {p.priceVrsc > 0 ? `${totalVrsc} VRSC / mo (spot £${Number(spotRate).toFixed(2)}/VRSC)` : '0.0000 VRSC (Testnet quota)'}
+                    {Number(p.priceGbpPence || 0) > 0 ? `${totalVrsc} VRSC / mo (spot £${Number(spotRate).toFixed(2)}/VRSC)` : '0.0000 VRSC (Testnet quota)'}
                   </div>
                 </div>
 

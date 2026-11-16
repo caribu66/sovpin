@@ -21,7 +21,6 @@ export type PlanInfo = {
   chainScope: string;
   priceGbpPence: number;
   priceGbpDisplay: string;
-  priceVrsc: number;
   storageLimitBytes: number;
   gatewayBandwidthBytes: number;
   maxApiKeys: number;

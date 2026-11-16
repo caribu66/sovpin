@@ -8,7 +8,6 @@ const PLANS = {
     chainScope: 'VRSCTEST',
     priceGbpPence: 0,
     priceGbpDisplay: '£0',
-    priceVrsc: 0,
     storageLimitBytes: 1 * 1024 * 1024 * 1024, // 1 GB
     gatewayBandwidthBytes: 10 * 1024 * 1024 * 1024, // 10 GB
     maxApiKeys: 2,
@@ -27,7 +26,6 @@ const PLANS = {
     chainScope: 'VRSC + VRSCTEST',
     priceGbpPence: 1200, // £12.00 ex VAT
     priceGbpDisplay: '£12',
-    priceVrsc: 4.0,
     storageLimitBytes: 100 * 1024 * 1024 * 1024, // 100 GB
     gatewayBandwidthBytes: 500 * 1024 * 1024 * 1024, // 500 GB
     maxApiKeys: 10,
@@ -47,7 +45,6 @@ const PLANS = {
     chainScope: 'VRSC + VRSCTEST + PBaaS',
     priceGbpPence: 4900, // £49.00 ex VAT
     priceGbpDisplay: '£49',
-    priceVrsc: 16.3333, // 49.00 / 3.0 spot rate
     storageLimitBytes: 1024 * 1024 * 1024 * 1024, // 1 TB
     gatewayBandwidthBytes: 5 * 1024 * 1024 * 1024 * 1024, // 5 TB
     maxApiKeys: 50,

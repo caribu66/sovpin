@@ -84,6 +84,7 @@ function getDb() {
     );
 
     CREATE INDEX IF NOT EXISTS idx_pins_tenant_status ON pins(i_address, status);
+    CREATE INDEX IF NOT EXISTS idx_pins_status ON pins(status);
     CREATE INDEX IF NOT EXISTS idx_pins_cid_status ON pins(cid, status);
     CREATE INDEX IF NOT EXISTS idx_pins_cid ON pins(cid);
     CREATE INDEX IF NOT EXISTS idx_pins_i_address ON pins(i_address);

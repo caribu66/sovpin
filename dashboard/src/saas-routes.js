@@ -1362,6 +1362,7 @@ router.get('/webhooks', authenticate(), (req, res) => {
 });
 
 router.post('/webhooks', authenticate(), async (req, res) => {
+  try {
   const url = String(req.body?.url || '').trim();
   if (!url) {
     return res.status(400).json({ error: 'A valid HTTP(S) webhook URL is required' });
@@ -1405,6 +1406,10 @@ router.post('/webhooks', authenticate(), async (req, res) => {
   } catch (err) {
     console.error('[webhook] create failed:', err instanceof Error ? err.message : err);
     res.status(500).json({ error: 'Failed to create webhook' });
+  }
+  } catch (err) {
+    console.error('[webhook] create failed:', err instanceof Error ? err.message : err);
+    if (!res.headersSent) res.status(500).json({ error: 'Failed to create webhook' });
   }
 });
 
@@ -1882,10 +1887,18 @@ router.put('/pin/upload/chunked/:uploadId/part', authenticate('pin:write'), asyn
     const writeStream = fs.createWriteStream(partPath);
 
     await new Promise((resolve, reject) => {
+      let failed = false;
       req.on('data', (chunk) => {
+        if (failed) return;
         sizeBytes += chunk.length;
         if (sizeBytes > maxPartBytes) {
+          // A rejected part must not keep the connection open: stop
+          // consuming, drop the partial file, and destroy the socket so a
+          // slow trickle cannot hold the slot indefinitely.
+          failed = true;
+          req.removeAllListeners('data');
           writeStream.destroy();
+          req.destroy();
           reject(createHttpError(413, 'PART_TOO_LARGE', `Part exceeds ${maxPartBytes} bytes`));
           return;
         }
@@ -1896,6 +1909,7 @@ router.put('/pin/upload/chunked/:uploadId/part', authenticate('pin:write'), asyn
         }
       });
       req.on('end', () => {
+        if (failed) return;
         writeStream.end(() => resolve());
       });
       req.on('error', reject);
@@ -3211,6 +3225,17 @@ router.get('/billing/invoices', authenticate(), (req, res) => {
   });
 });
 
+function generateInvoiceNumber(datePart) {
+  const seq = String(Math.floor(1000 + Math.random() * 9000));
+  return `UK-SVP-${datePart}-${seq}`;
+}
+
+function isUniqueConstraintViolation(err) {
+  if (!err) return false;
+  if (typeof err.code === 'string' && err.code.includes('UNIQUE')) return true;
+  return String(err.message || '').includes('UNIQUE constraint failed');
+}
+
 router.post('/billing/checkout', authenticate(), (req, res) => {
   const { planId, paymentRail = 'veruspay' } = req.body || {};
   const plan = config.PLANS[planId];
@@ -3237,38 +3262,44 @@ router.post('/billing/checkout', authenticate(), (req, res) => {
   const { subtotalPence, vatPence, totalPence, spotRateGbp, amountSatoshi, amountVrsc } = quoteForPlan(plan);
   const vatRate = config.ukCompany.vatRate; // 20% UK VAT
 
-  const invoiceId = `inv_${crypto.randomBytes(8).toString('hex')}`;
-  const datePart = now.slice(0, 10).replace(/-/g, '');
-  const seq = String(Math.floor(1000 + Math.random() * 9000));
-  const invoiceNumber = `UK-SVP-${datePart}-${seq}`;
-  const veruspayMemo = `SOVPIN:${invoiceNumber}:${req.tenant.i_address}`;
-
-  db.prepare(
-    `INSERT INTO invoices (
-      invoice_id, invoice_number, i_address, plan_id, payment_rail,
-      subtotal_gbp_pence, vat_rate, vat_gbp_pence, total_gbp_pence,
-      vrsc_spot_gbp, amount_vrsc, amount_vrsc_sat, receiving_identity, veruspay_memo, status, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`
-  ).run(
-    invoiceId,
-    invoiceNumber,
-    req.tenant.i_address,
-    plan.id,
-    paymentRail,
-    subtotalPence,
-    vatRate,
-    vatPence,
-    totalPence,
-    spotRateGbp,
-    amountVrsc,
-    amountSatoshi,
-    config.sovpinReceivingIdentity,
-    veruspayMemo,
-    now
-  );
-
-  const invoice = db.prepare('SELECT * FROM invoices WHERE invoice_id = ?').get(invoiceId);
-  const sendcurrencyCli = `verus -chain=${config.verusChain} sendcurrency "*" '[{"address":"${config.sovpinReceivingIdentity}","amount":${amountVrsc},"memo":"${veruspayMemo}"}]'`;
+  // invoice_number carries a UNIQUE constraint and embeds a short random
+  // suffix, so a rare collision must regenerate the candidate, not 500.
+  let invoice = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const invoiceId = `inv_${crypto.randomBytes(8).toString('hex')}`;
+    const invoiceNumber = generateInvoiceNumber(now.slice(0, 10).replace(/-/g, ''));
+    const veruspayMemo = `SOVPIN:${invoiceNumber}:${req.tenant.i_address}`;
+    try {
+      db.prepare(
+        `INSERT INTO invoices (
+          invoice_id, invoice_number, i_address, plan_id, payment_rail,
+          subtotal_gbp_pence, vat_rate, vat_gbp_pence, total_gbp_pence,
+          vrsc_spot_gbp, amount_vrsc, amount_vrsc_sat, receiving_identity, veruspay_memo, status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)`
+      ).run(
+        invoiceId,
+        invoiceNumber,
+        req.tenant.i_address,
+        plan.id,
+        paymentRail,
+        subtotalPence,
+        vatRate,
+        vatPence,
+        totalPence,
+        spotRateGbp,
+        amountVrsc,
+        amountSatoshi,
+        config.sovpinReceivingIdentity,
+        veruspayMemo,
+        now
+      );
+      invoice = db.prepare('SELECT * FROM invoices WHERE invoice_id = ?').get(invoiceId);
+      break;
+    } catch (err) {
+      if (!isUniqueConstraintViolation(err) || attempt === 4) throw err;
+    }
+  }
+  const sendcurrencyCli = `verus -chain=${config.verusChain} sendcurrency "*" '[{"address":"${config.sovpinReceivingIdentity}","amount":${amountVrsc},"memo":"${invoice.veruspay_memo}"}]'`;
 
   res.status(201).json({
     invoice,
@@ -3284,7 +3315,7 @@ router.post('/billing/checkout', authenticate(), (req, res) => {
       receivingIdentity: config.sovpinReceivingIdentity,
       amountVrsc,
       chain: config.verusChain,
-      memo: veruspayMemo,
+      memo: invoice.veruspay_memo,
       sendcurrencyCli,
     },
   });
@@ -3747,6 +3778,7 @@ router.get('/watchers/:watcherId/traversal', authenticate(), async (req, res) =>
 
 // ── Stripe UK Webhook Handler (GBP Billing) ────────────────────────────────
 // Handles checkout.session.completed and invoice.paid events from Stripe UK.
+const STRIPE_WEBHOOK_TOLERANCE_SEC = 300; // Stripe's default replay window
 function verifyStripeWebhookSignature(rawPayload, signatureHeader, secret) {
   if (!signatureHeader || !secret) return false;
   const parts = Object.fromEntries(
@@ -3756,6 +3788,11 @@ function verifyStripeWebhookSignature(rawPayload, signatureHeader, secret) {
       .filter((pair) => pair.length === 2)
   );
   if (!parts.t || !parts.v1) return false;
+  // Reject stale or clock-skewed timestamps so a captured webhook cannot be
+  // replayed outside the tolerance window.
+  const ts = Number(parts.t);
+  if (!Number.isFinite(ts)) return false;
+  if (Math.abs(Date.now() / 1000 - ts) > STRIPE_WEBHOOK_TOLERANCE_SEC) return false;
   const signedPayload = `${parts.t}.${rawPayload}`;
   const expected = crypto.createHmac('sha256', secret).update(signedPayload, 'utf8').digest('hex');
   try {
@@ -3902,6 +3939,7 @@ async function syncWatchersForBlock({ blockHeight = 0, blockHash = '', trigger =
 // POST /v1/internal/blocknotify?blockHeight=<height>&blockHash=<hash>
 // Called by verusd -blocknotify to trigger immediate CMM watcher syncs.
 router.post('/internal/blocknotify', async (req, res) => {
+  try {
   const blockHeight = Number(req.query?.blockHeight || req.body?.blockHeight || 0);
   const blockHash = String(req.query?.blockHash || req.body?.blockHash || '').trim();
 
@@ -3935,6 +3973,10 @@ router.post('/internal/blocknotify', async (req, res) => {
   } catch (err) {
     console.error('[blocknotify] sync failed:', err instanceof Error ? err.message : err);
     return res.status(502).json({ error: 'Watcher sync failed' });
+  }
+  } catch (err) {
+    console.error('[blocknotify] handler failed:', err instanceof Error ? err.message : err);
+    if (!res.headersSent) return res.status(500).json({ error: 'Watcher sync failed' });
   }
 });
 
@@ -3997,5 +4039,10 @@ router.runCmmAutoSync = async () => {
     }
   }
 };
+
+router.generateInvoiceNumber = generateInvoiceNumber;
+router.isUniqueConstraintViolation = isUniqueConstraintViolation;
+router.verifyStripeWebhookSignature = verifyStripeWebhookSignature;
+router.STRIPE_WEBHOOK_TOLERANCE_SEC = STRIPE_WEBHOOK_TOLERANCE_SEC;
 
 module.exports = router;

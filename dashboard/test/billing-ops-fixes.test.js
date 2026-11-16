@@ -47,6 +47,58 @@ test('db migration adds sessions.expires_at index and invoices satoshi column', 
   assert.ok(cols.some((c) => c.name === 'amount_vrsc_sat'), 'invoices.amount_vrsc_sat must exist');
 });
 
+test('plans carry no float VRSC field (integer pence only)', () => {
+  const config = require('../src/config');
+  for (const plan of Object.values(config.PLANS)) {
+    assert.ok(!('priceVrsc' in plan), `${plan.id} must not carry priceVrsc`);
+    assert.equal(Number.isInteger(plan.priceGbpPence), true);
+  }
+});
+
+test('pins status-only index exists for GC candidate scans', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sovpin-test-'));
+  process.env.SOVPIN_DB_PATH = path.join(tmp, 'test.sqlite');
+  delete require.cache[require.resolve('../src/db')];
+  const { getDb } = require('../src/db');
+  const db = getDb();
+  const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_pins_status'").get();
+  assert.ok(idx, 'idx_pins_status must exist');
+});
+
+const crypto = require('node:crypto');
+
+function stripeHeaderFor(payload, secret, ts) {
+  const v1 = crypto.createHmac('sha256', secret).update(`${ts}.${payload}`, 'utf8').digest('hex');
+  return `t=${ts},v1=${v1}`;
+}
+
+test('stripe webhook: fresh signature verifies, stale/tampered do not', () => {
+  const routes = require('../src/saas-routes');
+  const secret = 'whsec_test_secret';
+  const payload = JSON.stringify({ type: 'checkout.session.completed' });
+  const freshTs = Math.floor(Date.now() / 1000);
+  assert.equal(routes.verifyStripeWebhookSignature(payload, stripeHeaderFor(payload, secret, freshTs), secret), true);
+  const staleTs = freshTs - (routes.STRIPE_WEBHOOK_TOLERANCE_SEC + 60);
+  assert.equal(routes.verifyStripeWebhookSignature(payload, stripeHeaderFor(payload, secret, staleTs), secret), false);
+  const futureTs = freshTs + routes.STRIPE_WEBHOOK_TOLERANCE_SEC + 60;
+  assert.equal(routes.verifyStripeWebhookSignature(payload, stripeHeaderFor(payload, secret, futureTs), secret), false);
+  const badSig = `t=${freshTs},v1=${'0'.repeat(64)}`;
+  assert.equal(routes.verifyStripeWebhookSignature(payload, badSig, secret), false);
+  assert.equal(routes.verifyStripeWebhookSignature(payload, '', secret), false);
+  assert.equal(routes.verifyStripeWebhookSignature(payload, stripeHeaderFor(payload, secret, freshTs), ''), false);
+});
+
+test('invoice number generator format and unique-violation classifier', () => {
+  const routes = require('../src/saas-routes');
+  for (let i = 0; i < 50; i++) {
+    assert.match(routes.generateInvoiceNumber('20261116'), /^UK-SVP-20261116-\d{4}$/);
+  }
+  assert.equal(routes.isUniqueConstraintViolation({ code: 'ERR_SQLITE_CONSTRAINT_UNIQUE' }), true);
+  assert.equal(routes.isUniqueConstraintViolation(new Error('UNIQUE constraint failed: invoices.invoice_number')), true);
+  assert.equal(routes.isUniqueConstraintViolation(new Error('boom')), false);
+  assert.equal(routes.isUniqueConstraintViolation(null), false);
+});
+
 test('ops scripts have jq fallback and restore integrity gate', () => {
   const tunnel = fs.readFileSync(path.join(__dirname, '..', '..', 'scripts', 'configure-tunnel.sh'), 'utf8');
   const kubo = fs.readFileSync(path.join(__dirname, '..', '..', 'scripts', 'deploy-kubo.sh'), 'utf8');

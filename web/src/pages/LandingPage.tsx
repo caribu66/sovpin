@@ -273,7 +273,7 @@ const { identity, blockHeight, dataDescriptors, references } = await res.json();
             const totalPence = Number(p.priceGbpPence || 0) + vatPence;
             const totalIncVat = (totalPence / 100).toFixed(2);
             const liveRate = Number(publicInfo?.gbpPerVrscRate || 3.0);
-            const totalVrsc = p.priceVrsc > 0 ? (Math.round((totalPence / 100 / liveRate) * 1e8) / 1e8).toFixed(4) : '0.0000';
+            const totalVrsc = Number(p.priceGbpPence || 0) > 0 ? (Math.round((totalPence / 100 / liveRate) * 1e8) / 1e8).toFixed(4) : '0.0000';
             return (
               <div key={p.id} className="p-5 flex flex-col justify-between space-y-4">
                 <div className="space-y-3">
@@ -287,7 +287,7 @@ const { identity, blockHeight, dataDescriptors, references } = await res.json();
                       / mo {p.priceGbpPence > 0 ? `(ex VAT · £${totalIncVat} inc VAT)` : ''}
                     </span>
                     <div className="text-[11px] text-[#10B981] mt-0.5">
-                      {p.priceVrsc > 0 ? `${totalVrsc} VRSC / mo (inc VAT)` : '0.00 VRSC (Free Testnet Quota)'}
+                      {Number(p.priceGbpPence || 0) > 0 ? `${totalVrsc} VRSC / mo (inc VAT)` : '0.00 VRSC (Free Testnet Quota)'}
                     </div>
                   </div>
                   <ul className="space-y-1 text-[11px] text-[#9CA3AF]">
