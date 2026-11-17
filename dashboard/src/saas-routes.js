@@ -15,6 +15,12 @@ const {
   upsertActivePinRecord,
   countActivePinReferences,
   writeAuditLog,
+  createPinReservation,
+  settlePinReservation,
+  attachPinReservation,
+  detachPinReservation,
+  expirePinReservations,
+  completeTemporaryPinRelease,
 } = require('./db');
 const {
   getDaemonInfo,
@@ -1686,6 +1692,7 @@ router.post(
           vdxfId,
           meta,
           sha256Verified: 1,
+          temporary: req.query?.temporary === '1',
         })
       );
 
@@ -1715,7 +1722,15 @@ router.post(
         source: 'stream',
       });
 
-      res.status(201).json(serializePinningServiceJob(row));
+      const response = serializePinningServiceJob(row);
+      if (req.query?.temporary === '1') {
+        response.reservationid = createPinReservation({
+          iAddress: req.tenant.i_address,
+          requestId: row.request_id,
+          cid: row.cid,
+        });
+      }
+      res.status(201).json(response);
     } catch (error) {
       const status = Number(error.status) || 500;
       res.status(status).json({
@@ -1729,6 +1744,59 @@ router.post(
     }
   }
 );
+
+// Temporary pin reservations used by invoice-backed mint uploads.
+router.post('/pin-reservations/:reservationid/commit', authenticate('pin:write'), (req, res) => {
+  const result = settlePinReservation(req.params.reservationid, req.tenant.i_address, 'commit');
+  if (!result) return res.status(404).json({ error: { reason: 'NOT_FOUND', details: 'Reservation not found' } });
+  return res.status(200).json({ ok: true, ...result });
+});
+
+router.delete('/pin-reservations/:reservationid', authenticate('pin:write'), async (req, res) => {
+  const result = settlePinReservation(req.params.reservationid, req.tenant.i_address, 'release');
+  if (!result) return res.status(404).json({ error: { reason: 'NOT_FOUND', details: 'Reservation not found' } });
+  let removedFromKubo = false;
+  if (result.removedFromKubo) {
+    removedFromKubo = await kuboPinRm(result.cid);
+    if (!removedFromKubo) {
+      return res.status(503).json({ error: { reason: 'KUBO_RELEASE_FAILED', details: 'Pin release is queued for retry' } });
+    }
+    completeTemporaryPinRelease(result.cid);
+  }
+  return res.status(202).json({ ok: true, reservationid: req.params.reservationid, removedFromKubo });
+});
+
+router.post('/pin-reservations/:reservationid/attach', authenticate('pin:write'), (req, res) => {
+  const leaseMs = req.body?.leaseMs;
+  if (leaseMs !== undefined && (!Number.isSafeInteger(leaseMs) || leaseMs <= 0 || leaseMs > 90 * 24 * 60 * 60 * 1000)) {
+    return res.status(400).json({ error: { reason: 'INVALID_LEASE', details: 'leaseMs must be a positive integer no greater than 90 days' } });
+  }
+  const attached = attachPinReservation(req.params.reservationid, req.tenant.i_address, leaseMs);
+  if (!attached) return res.status(404).json({ error: { reason: 'NOT_FOUND', details: 'Reservation not found' } });
+  return res.status(200).json({ ok: true, reservationid: req.params.reservationid });
+});
+
+router.post('/pin-reservations/:reservationid/detach', authenticate('pin:write'), (req, res) => {
+  const detached = detachPinReservation(req.params.reservationid, req.tenant.i_address);
+  if (!detached) return res.status(404).json({ error: { reason: 'NOT_FOUND', details: 'Reservation not found' } });
+  return res.status(200).json({ ok: true, reservationid: req.params.reservationid, expiresInMs: 7 * 24 * 60 * 60 * 1000 });
+});
+
+router.runExpiredPinReservationSweep = async () => {
+  const cids = expirePinReservations();
+  let removed = 0;
+  for (const cid of cids) {
+    try {
+      if (await kuboPinRm(cid)) {
+        completeTemporaryPinRelease(cid);
+        removed++;
+      }
+    } catch (error) {
+      console.error('[pin-reservations] expired pin cleanup failed:', error?.message || error);
+    }
+  }
+  return { candidates: cids.length, removed };
+};
 
 // ── Chunked / Resumable Upload API (>100 MiB over Cloudflare Edge) ──────────
 function getChunkedUploadDir(uploadId) {
@@ -4006,6 +4074,7 @@ router.sweepExpiredState = () => {
 
 router.runCmmAutoSync = async () => {
   router.sweepExpiredState();
+  await router.runExpiredPinReservationSweep();
   const db = getDb();
   const watchers = db
     .prepare("SELECT watcher_id, target_i_address FROM cmm_watchers WHERE status = 'active'")

@@ -78,6 +78,7 @@ function getDb() {
       meta_json TEXT NOT NULL DEFAULT '{}',
       sha256_verified INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'pinned',
+      temporary INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       unpinned_at TEXT,
       FOREIGN KEY (i_address) REFERENCES tenants(i_address) ON DELETE CASCADE
@@ -88,6 +89,19 @@ function getDb() {
     CREATE INDEX IF NOT EXISTS idx_pins_cid_status ON pins(cid, status);
     CREATE INDEX IF NOT EXISTS idx_pins_cid ON pins(cid);
     CREATE INDEX IF NOT EXISTS idx_pins_i_address ON pins(i_address);
+
+    CREATE TABLE IF NOT EXISTS pin_reservations (
+      reservation_id TEXT PRIMARY KEY,
+      i_address TEXT NOT NULL,
+      request_id TEXT NOT NULL,
+      cid TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      state TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (i_address) REFERENCES tenants(i_address) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_pin_reservations_cid ON pin_reservations(cid);
+    CREATE INDEX IF NOT EXISTS idx_pin_reservations_state_expires ON pin_reservations(state, expires_at);
     CREATE INDEX IF NOT EXISTS idx_auth_challenges_expires ON auth_challenges(expires_at);
 
     CREATE TABLE IF NOT EXISTS cmm_watchers (
@@ -214,6 +228,11 @@ function getDb() {
     CREATE INDEX IF NOT EXISTS idx_chunked_uploads_tenant ON chunked_uploads(i_address, status);
   `);
 
+  const temporaryPinColumns = db.prepare('PRAGMA table_info(pins)').all();
+  if (!temporaryPinColumns.some((column) => column.name === 'temporary')) {
+    db.exec('ALTER TABLE pins ADD COLUMN temporary INTEGER NOT NULL DEFAULT 0');
+  }
+
   const pinColumns = db.prepare('PRAGMA table_info(pins)').all();
   if (!pinColumns.some((column) => column.name === 'sha256_verified')) {
     db.exec('ALTER TABLE pins ADD COLUMN sha256_verified INTEGER NOT NULL DEFAULT 0');
@@ -293,6 +312,7 @@ function upsertActivePinRecord({
   vdxfId = null,
   meta = {},
   sha256Verified = 0,
+  temporary = false,
 }) {
   const db = getDb();
   const existing = db
@@ -304,7 +324,7 @@ function upsertActivePinRecord({
   if (existing) {
     db.prepare(
       `UPDATE pins
-       SET name = ?, mime_type = ?, size_bytes = ?, sha256_hex = ?, vdxf_uri = ?, vdxf_id = ?, meta_json = ?, sha256_verified = ?
+       SET name = ?, mime_type = ?, size_bytes = ?, sha256_hex = ?, vdxf_uri = ?, vdxf_id = ?, meta_json = ?, sha256_verified = ?, temporary = CASE WHEN ? = 1 THEN temporary ELSE 0 END
        WHERE request_id = ?`
     ).run(
       name || existing.name,
@@ -315,6 +335,7 @@ function upsertActivePinRecord({
       vdxfId !== undefined ? vdxfId : existing.vdxf_id,
       JSON.stringify(meta || {}),
       sha256Verified ? 1 : existing.sha256_verified,
+      temporary ? 1 : 0,
       existing.request_id
     );
     return db.prepare('SELECT * FROM pins WHERE request_id = ?').get(existing.request_id);
@@ -323,8 +344,8 @@ function upsertActivePinRecord({
   const requestId = `pin_${crypto.randomBytes(10).toString('hex')}`;
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO pins (request_id, i_address, cid, name, mime_type, size_bytes, sha256_hex, vdxf_uri, vdxf_id, meta_json, sha256_verified, status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pinned', ?)`
+    `INSERT INTO pins (request_id, i_address, cid, name, mime_type, size_bytes, sha256_hex, vdxf_uri, vdxf_id, meta_json, sha256_verified, status, temporary, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pinned', ?, ?)`
   ).run(
     requestId,
     iAddress,
@@ -337,6 +358,7 @@ function upsertActivePinRecord({
     vdxfId,
     JSON.stringify(meta || {}),
     sha256Verified ? 1 : 0,
+    temporary ? 1 : 0,
     now
   );
   return db.prepare('SELECT * FROM pins WHERE request_id = ?').get(requestId);
@@ -345,9 +367,13 @@ function upsertActivePinRecord({
 function countActivePinReferences(cid) {
   const db = getDb();
   const row = db
-    .prepare(`SELECT COUNT(*) AS ref_count FROM pins WHERE cid = ? AND status = 'pinned'`)
+    .prepare(`SELECT COUNT(*) AS ref_count FROM pins WHERE cid = ? AND status = 'pinned' AND temporary = 0`)
     .get(cid);
   let refCount = Number(row?.ref_count || 0);
+  const reservationRefs = db
+    .prepare("SELECT COUNT(*) AS ref_count FROM pin_reservations WHERE cid = ? AND state = 'active' AND expires_at > ?")
+    .get(cid, Date.now());
+  refCount += Number(reservationRefs?.ref_count || 0);
 
   // Also count active CMM watchers whose last_result_json discovered this CID
   const watchers = db
@@ -452,4 +478,83 @@ module.exports = {
   countActivePinReferences,
   writeAuditLog,
   getSystemMetricsCounts,
+  createPinReservation({ iAddress, requestId, cid, ttlMs = 7 * 24 * 60 * 60 * 1000 }) {
+    const db = getDb();
+    const reservationId = `res_${crypto.randomBytes(24).toString('hex')}`;
+    db.prepare('INSERT INTO pin_reservations (reservation_id, i_address, request_id, cid, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(reservationId, iAddress, requestId, cid, Date.now() + ttlMs, new Date().toISOString());
+    return reservationId;
+  },
+  settlePinReservation(reservationId, iAddress, action) {
+    const db = getDb();
+    return withImmediateTransaction(db, () => {
+      const row = db.prepare('SELECT * FROM pin_reservations WHERE reservation_id = ? AND i_address = ?')
+        .get(reservationId, iAddress);
+      if (!row) return null;
+      if (row.state === 'committed') return { cid: row.cid, committed: true, removedFromKubo: false };
+      if (row.state === 'released' || row.state === 'expired') {
+        const pin = db.prepare("SELECT temporary, status FROM pins WHERE request_id = ? AND cid = ?").get(row.request_id, row.cid);
+        return {
+          cid: row.cid,
+          committed: false,
+          removedFromKubo: pin?.temporary === 1 && pin.status === 'unpinned' && countActivePinReferences(row.cid) === 0,
+        };
+      }
+      if (action === 'commit') {
+        db.prepare("UPDATE pins SET temporary = 0 WHERE request_id = ? AND i_address = ? AND cid = ? AND status = 'pinned'")
+          .run(row.request_id, iAddress, row.cid);
+        db.prepare("UPDATE pin_reservations SET state = 'committed' WHERE reservation_id = ?").run(reservationId);
+        return { cid: row.cid, committed: true, removedFromKubo: false };
+      }
+      db.prepare("UPDATE pin_reservations SET state = 'released' WHERE reservation_id = ?").run(reservationId);
+      const remaining = db.prepare("SELECT COUNT(*) AS count FROM pin_reservations WHERE request_id = ? AND state = 'active' AND expires_at > ?")
+        .get(row.request_id, Date.now());
+      let removedFromKubo = false;
+      if (Number(remaining?.count || 0) === 0) {
+        const pin = db.prepare("SELECT temporary FROM pins WHERE request_id = ? AND status = 'pinned'").get(row.request_id);
+        if (pin?.temporary === 1) {
+          db.prepare("UPDATE pins SET status = 'unpinned', unpinned_at = ? WHERE request_id = ?")
+            .run(new Date().toISOString(), row.request_id);
+          if (countActivePinReferences(row.cid) === 0) removedFromKubo = action === 'release';
+        }
+      }
+      return { cid: row.cid, committed: false, removedFromKubo };
+    });
+  },
+  attachPinReservation(reservationId, iAddress, leaseMs = 38 * 24 * 60 * 60 * 1000) {
+    const db = getDb();
+    const boundedLeaseMs = Number.isSafeInteger(leaseMs) && leaseMs > 0
+      ? Math.min(leaseMs, 90 * 24 * 60 * 60 * 1000)
+      : 38 * 24 * 60 * 60 * 1000;
+    const result = db.prepare("UPDATE pin_reservations SET expires_at = ? WHERE reservation_id = ? AND i_address = ? AND state = 'active'")
+      .run(Date.now() + boundedLeaseMs, reservationId, iAddress);
+    return result.changes > 0;
+  },
+  detachPinReservation(reservationId, iAddress, ttlMs = 7 * 24 * 60 * 60 * 1000) {
+    const db = getDb();
+    const result = db.prepare("UPDATE pin_reservations SET expires_at = ?, state = 'active' WHERE reservation_id = ? AND i_address = ? AND state = 'active'")
+      .run(Date.now() + ttlMs, reservationId, iAddress);
+    return result.changes > 0;
+  },
+  expirePinReservations() {
+    const db = getDb();
+    return withImmediateTransaction(db, () => {
+      const now = Date.now();
+      db.prepare("UPDATE pin_reservations SET state = 'expired' WHERE state = 'active' AND expires_at <= ?").run(now);
+      const candidates = db.prepare("SELECT request_id, cid FROM pins WHERE status IN ('pinned', 'unpinned') AND temporary = 1").all();
+      const unpinCids = [];
+      for (const candidate of candidates) {
+        const active = db.prepare("SELECT COUNT(*) AS count FROM pin_reservations WHERE request_id = ? AND state = 'active' AND expires_at > ?").get(candidate.request_id, now);
+        if (Number(active?.count || 0) > 0) continue;
+        db.prepare("UPDATE pins SET status = 'unpinned', unpinned_at = COALESCE(unpinned_at, ?) WHERE request_id = ? AND status = 'pinned' AND temporary = 1")
+          .run(new Date().toISOString(), candidate.request_id);
+        if (countActivePinReferences(candidate.cid) === 0) unpinCids.push(candidate.cid);
+      }
+      return [...new Set(unpinCids)];
+    });
+  },
+  completeTemporaryPinRelease(cid) {
+    const db = getDb();
+    db.prepare("UPDATE pins SET temporary = 0 WHERE cid = ? AND status = 'unpinned' AND temporary = 1").run(cid);
+  },
 };

@@ -102,7 +102,11 @@ Cloudflare enforces a **100 MB per-HTTP-request body limit** on Free/Pro zones (
 | `GET` | `/v1/pins` | `pin:read` | IPFS Pinning Service API: list pinned objects for the tenant (supports `?status=`, `?cid=`, `?from=` and `?to=` as inclusive ISO 8601 / `YYYY-MM-DD` bounds on `created_at`; a date-only `to` covers the whole day). |
 | `POST` | `/v1/pins` | `pin:write` | IPFS Pinning Service API: pin an existing CID on Kubo and build a Verus `URLRef` descriptor (without a byte-hash commitment, since raw bytes were not uploaded through SovPin). |
 | `POST` | `/v1/pin/upload` | `pin:write` | Upload JSON, text, or Base64 payload to Kubo, compute SHA-256, and return `DataDescriptor(CrossChainDataRef(URLRef))`. |
-| `POST` | `/v1/pin/upload/stream` | `pin:write` | Stream a `multipart/form-data` file (`file` field + optional `meta` JSON field and optional `?vdxfUri=`) to Kubo without Base64 buffering. Enforces quota and `MAX_SINGLE_UPLOAD_BYTES`. |
+| `POST` | `/v1/pin/upload/stream` | `pin:write` | Stream a `multipart/form-data` file (`file` field + optional `meta` JSON field, `?vdxfUri=`, and `?temporary=1`) to Kubo. Temporary uploads include a `reservationid` for invoice lease/settlement. Enforces quota and `MAX_SINGLE_UPLOAD_BYTES`. |
+| `POST` | `/v1/pin-reservations/:reservationid/attach` | `pin:write` | Attach an upload to an invoice and renew its finite lease (`leaseMs`, maximum 90 days; default 38 days). |
+| `POST` | `/v1/pin-reservations/:reservationid/commit` | `pin:write` | Permanently retain the associated pin after its Verus mint is confirmed. |
+| `POST` | `/v1/pin-reservations/:reservationid/detach` | `pin:write` | Return a reservation to the seven-day draft lease. |
+| `DELETE` | `/v1/pin-reservations/:reservationid` | `pin:write` | Release the reservation; remove its temporary pin from Kubo only when no other active reservation, permanent pin, or watcher references its CID. |
 | `POST` | `/v1/pin/upload/chunked/init` | `pin:write` | Initialize a chunked/resumable upload session (`up_...`) for files `> 100 MiB`. |
 | `PUT` | `/v1/pin/upload/chunked/:uploadId/part` | `pin:write` | Upload binary part `?partNumber=1..10000` (`application/octet-stream`) to disk staging with per-part SHA-256 tracking. |
 | `POST` | `/v1/pin/upload/chunked/:uploadId/complete` | `pin:write` | Stream concatenated parts from disk to Kubo, compute full-file SHA-256, record pin, and clean up staging files. |
@@ -146,6 +150,7 @@ SovPin uses Node’s built-in `node:sqlite` (`DatabaseSync`) in `WAL` mode (`das
 | `sessions` | `token` | Authenticated dashboard session tokens (`svps_...`, 7-day expiry). |
 | `api_keys` | `key_id` | Scoped developer API keys (`key_prefix`, `key_hash`, `scopes`, `revoked`, `last_used_at`). |
 | `pins` | `request_id` | Pinned objects (`i_address`, `cid`, `name`, `mime_type`, `size_bytes`, `sha256_hex`, `sha256_verified`, `vdxf_uri`, `vdxf_id`, `status`). |
+| `pin_reservations` | `reservation_id` | Temporary upload holds (`i_address`, `request_id`, `cid`, finite `expires_at`, `state`); lease expiry releases abandoned temporary pins. |
 | `chunked_uploads` | `upload_id` | Multi-part upload sessions (`filename`, `mime_type`, `total_size_bytes`, `received_parts_json`, `status`, `expires_at`). |
 | `cmm_watchers` | `watcher_id` | On-chain VerusID CMM watchers (`target_identity`, `target_i_address`, `vdxf_uri`, `pins_discovered`, `last_result_json`). |
 | `invoices` | `invoice_id` | UK VAT (`20%`) and VerusPay (`VRSC`) invoices (`invoice_number`, `subtotal_gbp_pence`, `vat_gbp_pence`, `total_gbp_pence`, `amount_vrsc`, `status`, `txid`). |
